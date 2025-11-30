@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+python-dotenv
+
+supabase
+gotrue
+postgrest
+realtime
+storage3
+
+numpy
+scikit-learn
+
+torch==2.2.1
+
+openai==1.3.7
+httpx==0.27.0
