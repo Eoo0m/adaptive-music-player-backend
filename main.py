@@ -1,8 +1,3 @@
-"""
-FastAPI 백엔드 서버
-기존 Express.js server.js의 모든 기능을 FastAPI로 변환
-"""
-
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
@@ -430,12 +425,22 @@ async def search_by_keyword(request: KeywordSearchRequest):
         # =============== 4) 클러스터링 준비 ===============
         import numpy as np
         from sklearn.cluster import KMeans
+        import json
 
         # 임베딩 + 메타데이터 분리
         all_items = response.data
 
         # Supabase에서 embedding도 반환되도록 함수 수정돼 있어야 함
-        embeddings = np.array([item["embedding"] for item in all_items])
+        # embedding이 문자열로 저장되어 있을 경우를 대비해 파싱
+        embeddings = []
+        for item in all_items:
+            emb = item["embedding"]
+            if isinstance(emb, str):
+                # 문자열인 경우 JSON 파싱
+                emb = json.loads(emb)
+            embeddings.append(emb)
+
+        embeddings = np.array(embeddings)
 
         pos_counts = [item.get("pos_count", 0) for item in all_items]
 
