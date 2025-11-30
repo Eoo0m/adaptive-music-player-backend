@@ -82,6 +82,7 @@ app.add_middleware(
     allow_origins=[
         "https://dynplayer.win",
         "https://www.dynplayer.win",
+        "https://api.dynplayer.win",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
@@ -587,5 +588,5 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "main:app", host="127.0.0.1", port=int(os.getenv("PORT", 8889)), reload=True
+        "main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8889)), reload=True
     )
