@@ -5,29 +5,30 @@ Spotify 기반 음악 추천 · 검색 · 멀티모달 임베딩 모델
 
 https://dynplayer.win
 
-![video](https://github.com/user-attachments/assets/d2e3461e-dc08-4218-a793-ec73919df1ad)
+![video_3x](https://github.com/user-attachments/assets/c6fdbc9d-1f6a-4fa3-aa49-c39b7634b802)
+
 
 - 처음 키워드 검색시 5-10초 소요
 - 너무 많은 클릭시 스포티파이 오류 발생
 
 
 
-🔑 Spotify OAuth
+### 🔑 Spotify OAuth
 	•	Spotify Login
 	•	Access Token & Refresh Token 발급
 
-🔍 검색 기능
+### 🔍 검색 기능
 	•	제목 검색 (/search-songs)
 	•	키워드 기반 벡터 유사도 검색 (/search-by-keyword)
 
-🎧 추천 기능
+### 🎧 추천 기능
 	•	트랙 벡터 기반 추천 (/recommend)
 	•	추천 결과 → Spotify Track 매핑 (/find-spotify-tracks)
 
-📡 Logging
+### 📡 Logging
 	•	유저 재생 기록 저장 (/log-listening)
 
-🧠 멀티모달 CLIP 모델
+### 🧠 멀티모달 CLIP 모델
 	•	Title(3072D OpenAI embedding) → 512D
 	•	Track(256D) → 512D
 	•	Multi-head Projection MLP
