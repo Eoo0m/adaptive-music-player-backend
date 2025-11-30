@@ -271,6 +271,8 @@ async def search_songs(request: SearchRequest):
         raise HTTPException(status_code=400, detail="Missing query")
 
     try:
+        print(f"🔍 Search query: {request.query}")
+
         response = supabase.rpc(
             "search_tracks_by_title", {"query_text": request.query, "match_count": 10}
         ).execute()
@@ -292,11 +294,14 @@ async def search_songs(request: SearchRequest):
             for item in response.data
         ]
 
+        print(f"✅ Found {len(results)} tracks")
         return {"results": results}
 
     except Exception as e:
-        print(f"Search error: {e}")
-        raise HTTPException(status_code=500, detail="Search service unavailable")
+        print(f"❌ Search error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Search service unavailable: {str(e)}")
 
 
 @app.post("/recommend")
@@ -306,6 +311,8 @@ async def recommend(request: RecommendRequest):
         raise HTTPException(status_code=400, detail="Missing track_key")
 
     try:
+        print(f"🎵 Recommend request for track_key: {request.track_key}")
+
         response = supabase.rpc(
             "match_tracks_by_key",
             {
@@ -313,6 +320,8 @@ async def recommend(request: RecommendRequest):
                 "match_count": request.num_recommendations,
             },
         ).execute()
+
+        print(f"📊 Supabase response: {response.data is not None}, count: {len(response.data) if response.data else 0}")
 
         if response.data is None:
             raise HTTPException(status_code=500, detail="Recommendation failed")
@@ -331,15 +340,19 @@ async def recommend(request: RecommendRequest):
             for item in response.data
         ]
 
+        print(f"✅ Returning {len(recommendations)} recommendations")
+
         return {
             "recommendations": recommendations,
             "original_song": {"track_key": request.track_key},
         }
 
     except Exception as e:
-        print(f"Recommend error: {e}")
+        print(f"❌ Recommend error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
-            status_code=500, detail="Recommendation service unavailable"
+            status_code=500, detail=f"Recommendation service unavailable: {str(e)}"
         )
 
 
@@ -351,6 +364,8 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
 
     try:
         import random
+
+        print(f"🔍 Finding Spotify tracks for {len(request.tracks)} recommendations")
 
         out = []
         shuffled = random.sample(request.tracks, min(len(request.tracks), 10))
@@ -375,12 +390,17 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
                                 "preview_url": item.get("preview_url"),
                             }
                         )
+                else:
+                    print(f"⚠️ Spotify search failed for {track['track']}: {response.status_code}")
 
+        print(f"✅ Found {len(out)} Spotify tracks")
         return {"spotify_tracks": out}
 
     except Exception as e:
-        print(f"find-spotify-tracks error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to find Spotify tracks")
+        print(f"❌ find-spotify-tracks error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to find Spotify tracks: {str(e)}")
 
 
 # ============== Keyword Search ==============
