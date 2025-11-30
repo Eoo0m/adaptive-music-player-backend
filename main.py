@@ -420,6 +420,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
         ).execute()
 
         if not response.data:
+            print("⚠️ No data from Supabase")
             return {"results": []}
 
         # =============== 4) 클러스터링 준비 ===============
@@ -432,6 +433,8 @@ async def search_by_keyword(request: KeywordSearchRequest):
 
         # Supabase에서 embedding도 반환되도록 함수 수정돼 있어야 함
         # embedding이 문자열로 저장되어 있을 경우를 대비해 파싱
+        print(f"📊 Received {len(all_items)} items from Supabase")
+
         embeddings = []
         for item in all_items:
             emb = item["embedding"]
@@ -441,6 +444,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
             embeddings.append(emb)
 
         embeddings = np.array(embeddings)
+        print(f"✅ Parsed {len(embeddings)} embeddings, shape: {embeddings.shape}")
 
         pos_counts = [item.get("pos_count", 0) for item in all_items]
 
@@ -490,6 +494,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
             )
 
         print(f"✅ Final selected: {len(results)} tracks")
+        print(f"📦 Response: {results}")
         return {"results": results}
 
     except Exception as e:
