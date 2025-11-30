@@ -7,7 +7,7 @@ https://dynplayer.win
 
 ![video_3x](https://github.com/user-attachments/assets/c6fdbc9d-1f6a-4fa3-aa49-c39b7634b802)
 
-
+- 앨범 커버 클릭시 검색창 노출
 - 처음 키워드 검색시 5-10초 소요
 - 너무 많은 클릭시 스포티파이 오류 발생
 
