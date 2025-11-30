@@ -366,13 +366,27 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
         import random
 
         print(f"🔍 Finding Spotify tracks for {len(request.tracks)} recommendations")
+        print(f"📋 First track sample: {request.tracks[0] if request.tracks else 'empty'}")
 
         out = []
+        # 빈 리스트 체크
+        if len(request.tracks) == 0:
+            print("⚠️ No tracks to search")
+            return {"spotify_tracks": []}
+
         shuffled = random.sample(request.tracks, min(len(request.tracks), 10))
 
         async with httpx.AsyncClient() as client:
             for track in shuffled:
-                q = f'track:"{track["track"]}" artist:"{track["artist"]}"'
+                # track 필드 확인 및 안전하게 접근
+                track_name = track.get("track") or track.get("track_name")
+                artist_name = track.get("artist") or track.get("artist_name")
+
+                if not track_name or not artist_name:
+                    print(f"⚠️ Missing track or artist info: {track}")
+                    continue
+
+                q = f'track:"{track_name}" artist:"{artist_name}"'
                 response = await client.get(
                     f"https://api.spotify.com/v1/search?q={q}&type=track&limit=1",
                     headers={"Authorization": f"Bearer {request.access_token}"},
@@ -380,8 +394,9 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
 
                 if response.status_code == 200:
                     data = response.json()
-                    item = data.get("tracks", {}).get("items", [None])[0]
-                    if item:
+                    items = data.get("tracks", {}).get("items", [])
+                    if items and len(items) > 0:
+                        item = items[0]
                         out.append(
                             {
                                 **track,
@@ -391,7 +406,7 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
                             }
                         )
                 else:
-                    print(f"⚠️ Spotify search failed for {track['track']}: {response.status_code}")
+                    print(f"⚠️ Spotify search failed for {track_name}: {response.status_code}")
 
         print(f"✅ Found {len(out)} Spotify tracks")
         return {"spotify_tracks": out}
