@@ -14,8 +14,8 @@ https://dynplayer.win
 
 
 
+<img width="1" height="1" alt="image" src="https://github.com/user-attachments/assets/f6dc72d3-41de-4016-b63a-bf907b73e4a9" />
 
-![Uploading image.png…]()
 
 
 ### 🔑 Spotify OAuth
