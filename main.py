@@ -489,27 +489,56 @@ async def search_by_keyword(request: KeywordSearchRequest):
         kmeans = KMeans(n_clusters=K, n_init="auto")
         labels = kmeans.fit_predict(embeddings)
 
-        # =============== 6) 각 클러스터에서 pos_count TOP 1씩 뽑기 ===============
+        # =============== 6) 각 클러스터에서 유사도+인기도 혼합 스코어 TOP 1씩 뽑기 ===============
         cluster_selected = []
+
+        # 유사도 정규화를 위한 min/max 계산
+        similarities = [item.get("similarity", 0) for item in all_items]
+        min_sim = min(similarities)
+        max_sim = max(similarities)
+        sim_range = max_sim - min_sim if max_sim > min_sim else 1
+
+        # pos_count 정규화를 위한 min/max 계산
+        min_pos = min(pos_counts) if pos_counts else 0
+        max_pos = max(pos_counts) if pos_counts else 1
+        pos_range = max_pos - min_pos if max_pos > min_pos else 1
 
         for cluster_id in range(K):
             cluster_indices = [i for i, lbl in enumerate(labels) if lbl == cluster_id]
             if not cluster_indices:
                 continue
 
-            # pos_count 높은 순 정렬
+            # 유사도(70%) + pos_count(30%) 가중 스코어 계산
+            def calculate_score(idx):
+                sim = all_items[idx].get("similarity", 0)
+                pos = pos_counts[idx]
+
+                # 0~1 범위로 정규화
+                norm_sim = (sim - min_sim) / sim_range if sim_range > 0 else 0
+                norm_pos = (pos - min_pos) / pos_range if pos_range > 0 else 0
+
+                # 유사도에 더 높은 가중치 (0.7), 인기도에 낮은 가중치 (0.3)
+                return 0.7 * norm_sim + 0.3 * norm_pos
+
             sorted_cluster = sorted(
-                cluster_indices, key=lambda idx: pos_counts[idx], reverse=True
+                cluster_indices, key=calculate_score, reverse=True
             )
 
             best_idx = sorted_cluster[0]
             cluster_selected.append(all_items[best_idx])
 
-        # 만약 10개보다 적으면 pos_count 상위곡으로 보충
+        # 만약 10개보다 적으면 유사도+인기도 혼합 스코어로 보충
         if len(cluster_selected) < 10:
-            remaining = sorted(
-                all_items, key=lambda x: x.get("pos_count", 0), reverse=True
-            )
+            def calculate_score_for_item(item):
+                sim = item.get("similarity", 0)
+                pos = item.get("pos_count", 0)
+
+                norm_sim = (sim - min_sim) / sim_range if sim_range > 0 else 0
+                norm_pos = (pos - min_pos) / pos_range if pos_range > 0 else 0
+
+                return 0.7 * norm_sim + 0.3 * norm_pos
+
+            remaining = sorted(all_items, key=calculate_score_for_item, reverse=True)
 
             for item in remaining:
                 if len(cluster_selected) >= 10:
