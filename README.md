@@ -11,9 +11,7 @@ https://dynplayer.win
 - 처음 키워드 검색시 5-10초 소요
 - 너무 많은 클릭시 스포티파이 오류 발생
 
-
-
-<img width="1" height="1" alt="image" src="https://github.com/user-attachments/assets/bdd321cb-8e6f-4ccb-be83-5c1e7b1e185f" />
+<img width="921" height="499" alt="Screenshot 2025-11-30 at 8 30 31 PM" src="https://github.com/user-attachments/assets/3fc00617-038a-496e-a4a4-00741dadb91a" />
 
 
 
