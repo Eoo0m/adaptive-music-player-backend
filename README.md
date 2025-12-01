@@ -13,8 +13,7 @@ https://dynplayer.win
 
 
 
-
-<img width="1" height="1" alt="image" src="https://github.com/user-attachments/assets/f6dc72d3-41de-4016-b63a-bf907b73e4a9" />
+<img width="1" height="1" alt="image" src="https://github.com/user-attachments/assets/bdd321cb-8e6f-4ccb-be83-5c1e7b1e185f" />
 
 
 
