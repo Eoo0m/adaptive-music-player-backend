@@ -233,14 +233,22 @@ def recommend_tracks_by_weighted_frequency(playlist_results, top_k: int = 10):
         list of track_key strings
     """
     from collections import defaultdict
+    import json
 
     # 트랙별 가중 점수 계산
     track_scores = defaultdict(float)
 
-    for playlist_id, track_ids_str, similarity_score in playlist_results:
-        if track_ids_str:
-            # track_ids는 "|"로 구분된 문자열
-            track_list = [t.strip() for t in track_ids_str.split("|") if t.strip()]
+    for playlist_id, track_ids_data, similarity_score in playlist_results:
+        if track_ids_data:
+            # track_ids는 JSON 배열 형태 (문자열 또는 리스트)
+            if isinstance(track_ids_data, str):
+                try:
+                    track_list = json.loads(track_ids_data)
+                except json.JSONDecodeError:
+                    # JSON 파싱 실패 시 "|"로 구분된 문자열로 시도
+                    track_list = [t.strip() for t in track_ids_data.split("|") if t.strip()]
+            else:
+                track_list = track_ids_data
 
             # 각 트랙에 유사도 점수 가중치 부여
             for track_id in track_list:
