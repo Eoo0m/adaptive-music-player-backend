@@ -22,7 +22,6 @@ https://dynplayer.win
 	•	/refresh_token
 	•	Refresh Token으로 Access Token 재발급
 
-⸻
 
 ## 🔍 검색 기능
 
@@ -31,7 +30,7 @@ https://dynplayer.win
 	•	Supabase 함수 search_tracks_by_title 호출
 	•	유사 제목 10개 반환
 
-⸻
+
 
 ### 🧠 /search-by-keyword — 키워드 기반 벡터 검색
 	•	OpenAI text-embedding-3-large → 3072차원 텍스트 임베딩 생성
@@ -40,14 +39,13 @@ https://dynplayer.win
 	•	playlist 내 트랙들을 similarity × frequency 기반으로 랭킹
 	•	상위 10개 곡 반환
 
-⸻
+
 
 ### 🎵 /find-spotify-tracks — 추천 결과 Spotify 매핑
 	•	추천된 트랙(title + artist) → Spotify Search API로 실제 트랙 매핑
 	•	Spotify track object, URI, preview_url 반환
 	•	음원 재생을 위한 필수 단계
 
-⸻
 
 ## 🎧 추천 기능
 
@@ -57,13 +55,13 @@ https://dynplayer.win
 → pgvector 코사인 유사도로 가장 가까운 embedding N개 추천
 	•	결과는 /find-spotify-tracks 로 Spotify 트랙 정보 매핑하여 재생 가능하게 처리
 
-⸻
+
 
 ## 📡 Logging
 
 📝 /log-listening — 사용자 청취 기록 저장
 
-⸻
+
 
 ## 🧠 모델 구조
 
@@ -72,7 +70,7 @@ https://dynplayer.win
 	•	Playlist embedding(256→512 projection)과 cosine similarity로 검색
 	•	Residual block + GELU + LayerNorm 기반 MLP
 
-⸻
+
 
 ## 🗄 DB 구조 (Supabase + pgvector)
 
