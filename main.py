@@ -13,7 +13,6 @@ from openai import OpenAI
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 
 # 환경 변수 로드
 load_dotenv()
@@ -25,53 +24,83 @@ supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-# CLIP 모델 정의
-class ProjectionMLP(nn.Module):
-    def __init__(self, in_dim, out_dim=512, hidden_dim=1024, heads=4):
+# CaptionPlaylistCLIP 모델 정의 (플레이리스트 검색용)
+class PlaylistProjectionMLP(nn.Module):
+    def __init__(self, in_dim, out_dim, hidden_dim=2048):
         super().__init__()
-        self.heads = heads
-        self.projs = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Linear(in_dim, hidden_dim),
-                    nn.GELU(),
-                    nn.LayerNorm(hidden_dim),
-                    nn.Linear(hidden_dim, out_dim),
-                )
-                for _ in range(heads)
-            ]
+
+        # First projection to hidden dimension
+        self.proj_in = nn.Linear(in_dim, hidden_dim)
+
+        # Residual blocks
+        self.block1 = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.LayerNorm(hidden_dim),
+            nn.Dropout(0.1),
         )
 
+        self.block2 = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.LayerNorm(hidden_dim),
+            nn.Dropout(0.1),
+        )
+
+        # Final projection to output dimension
+        self.proj_out = nn.Linear(hidden_dim, out_dim)
+
+        self.activation = nn.GELU()
+        self.norm = nn.LayerNorm(hidden_dim)
+
     def forward(self, x):
-        outs = []
-        for proj in self.projs:
-            h = proj(x)
-            h = F.normalize(h, dim=-1)
-            outs.append(h)
-        h_final = torch.stack(outs, dim=0).mean(dim=0)
-        return F.normalize(h_final, dim=-1)
+        # Project to hidden dimension
+        h = self.proj_in(x)
+        h = self.activation(h)
+        h = self.norm(h)
+
+        # Residual block 1
+        residual = h
+        h = self.block1(h)
+        h = h + residual
+
+        # Residual block 2
+        residual = h
+        h = self.block2(h)
+        h = h + residual
+
+        # Project to output dimension
+        h = self.proj_out(h)
+
+        # L2 normalize
+        return F.normalize(h, dim=-1)
 
 
-class TitleTrackCLIP(nn.Module):
-    def __init__(self, title_dim, track_dim, out_dim=512):
+class CaptionPlaylistCLIP(nn.Module):
+    def __init__(self, caption_dim, playlist_dim, out_dim=1024, temperature=0.07):
         super().__init__()
-        self.title_proj = ProjectionMLP(title_dim, out_dim)
-        self.track_proj = ProjectionMLP(track_dim, out_dim)
+        self.caption_proj = PlaylistProjectionMLP(caption_dim, out_dim)
+        self.playlist_proj = PlaylistProjectionMLP(playlist_dim, out_dim)
+        self.temperature = temperature
 
 
 # 모델 로드
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 title_dim = 3072  # OpenAI text-embedding-3-large
-track_dim = 256  # 트랙 임베딩 차원
+playlist_dim = 256  # 플레이리스트 임베딩 차원
 
-# 모델 생성 및 로드
-clip_model = TitleTrackCLIP(title_dim, track_dim, out_dim=512).to(device)
-clip_model.load_state_dict(
-    torch.load("title_track_clip_twostage.pt", map_location=device)
+# 플레이리스트 CLIP 모델 로드 (텍스트 임베딩 프로젝션용)
+playlist_clip_model = CaptionPlaylistCLIP(
+    caption_dim=title_dim,
+    playlist_dim=playlist_dim,
+    out_dim=512
+).to(device)
+playlist_clip_model.load_state_dict(
+    torch.load("clip_best.pt", map_location=device)
 )
-clip_model.eval()
+playlist_clip_model.eval()
 
-print(f"✅ CLIP model loaded on {device}")
+print(f"✅ Playlist CLIP model loaded on {device}")
 
 # FastAPI 앱 생성
 app = FastAPI(title="Dynplayer API")
@@ -140,6 +169,87 @@ class ListeningLogRequest(BaseModel):
 def generate_random_string(length: int = 16) -> str:
     """랜덤 문자열 생성"""
     return secrets.token_urlsafe(length)[:length]
+
+
+def search_playlists_by_keyword(keyword: str, top_k: int = 50):
+    """
+    키워드로 플레이리스트 검색 (Supabase 벡터 검색 사용)
+
+    Args:
+        keyword: 검색 키워드
+        top_k: 반환할 상위 플레이리스트 개수
+
+    Returns:
+        list of (playlist_id, track_ids, similarity_score) tuples
+    """
+    # 1. OpenAI 임베딩
+    embedding_response = openai_client.embeddings.create(
+        model="text-embedding-3-large", input=[keyword]
+    )
+    keyword_embedding = embedding_response.data[0].embedding
+
+    # 2. CLIP caption projection (텍스트만 프로젝션)
+    keyword_tensor = (
+        torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
+    )
+
+    with torch.no_grad():
+        projected_query = playlist_clip_model.caption_proj(keyword_tensor)  # (1, 512)
+        projected_embedding = projected_query.cpu().numpy()[0].tolist()
+
+    # 3. Supabase에서 유사한 플레이리스트 검색
+    response = supabase.rpc(
+        "match_playlist_embeddings",
+        {
+            "query_embedding": projected_embedding,
+            "match_count": top_k,
+        },
+    ).execute()
+
+    if not response.data:
+        return []
+
+    # 4. 결과 반환 (playlist_id, track_ids, similarity)
+    results = []
+    for item in response.data:
+        results.append((
+            item["playlist_id"],
+            item["track_ids"],
+            item["similarity"]
+        ))
+
+    return results
+
+
+def recommend_tracks_by_weighted_frequency(playlist_results, top_k: int = 10):
+    """
+    플레이리스트 유사도로 가중평균한 트랙 추천
+
+    Args:
+        playlist_results: list of (playlist_id, track_ids, similarity_score) tuples
+        top_k: 반환할 트랙 개수
+
+    Returns:
+        list of track_key strings
+    """
+    from collections import defaultdict
+
+    # 트랙별 가중 점수 계산
+    track_scores = defaultdict(float)
+
+    for playlist_id, track_ids_str, similarity_score in playlist_results:
+        if track_ids_str:
+            # track_ids는 "|"로 구분된 문자열
+            track_list = [t.strip() for t in track_ids_str.split("|") if t.strip()]
+
+            # 각 트랙에 유사도 점수 가중치 부여
+            for track_id in track_list:
+                track_scores[track_id] += similarity_score
+
+    # 상위 k개 트랙 선택
+    sorted_tracks = sorted(track_scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
+
+    return [track_id for track_id, _ in sorted_tracks]
 
 
 # ============== Routes ==============
@@ -425,7 +535,12 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
 
 @app.post("/search-by-keyword")
 async def search_by_keyword(request: KeywordSearchRequest):
-    """키워드 기반 검색 → 200개 벡터 받아서 클러스터링 후 pos_count 높은 10개 반환"""
+    """
+    키워드 기반 검색
+    1. 키워드와 유사한 플레이리스트를 찾음
+    2. 해당 플레이리스트에 포함된 트랙을 가중평균으로 순위 매김
+    3. 상위 10개 트랙 반환
+    """
 
     if not request.keyword:
         raise HTTPException(status_code=400, detail="Missing keyword")
@@ -433,61 +548,46 @@ async def search_by_keyword(request: KeywordSearchRequest):
     try:
         print(f"🔍 Keyword search: '{request.keyword}'")
 
-        # 1) OpenAI 임베딩
-        embedding_response = openai_client.embeddings.create(
-            model="text-embedding-3-large", input=[request.keyword]
-        )
-        keyword_embedding = embedding_response.data[0].embedding
+        # 1. 플레이리스트 검색 (상위 50개)
+        playlist_results = search_playlists_by_keyword(request.keyword, top_k=50)
+        print(f"📊 Found {len(playlist_results)} matching playlists")
 
-        # 2) CLIP title projection
-        keyword_tensor = (
-            torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
-        )
-
-        with torch.no_grad():
-            projected_embedding = clip_model.title_proj(keyword_tensor).cpu().numpy()[0]
-
-        # 3) Supabase에서 top 200개 받아오기
-        response = supabase.rpc(
-            "match_keyword_embeddings",
-            {
-                "query_embedding": projected_embedding.tolist(),
-                "match_count": request.top_k,
-            },
-        ).execute()
-
-        if not response.data:
-            print("⚠️ No data from Supabase")
+        if not playlist_results:
+            print("⚠️ No matching playlists found")
             return {"results": []}
 
-        # =============== 4) 유사도 기준으로 상위 10개 선택 ===============
-        all_items = response.data
-        print(f"📊 Received {len(all_items)} items from Supabase")
+        # 2. 가중 빈도 기반 트랙 추천
+        track_ids = recommend_tracks_by_weighted_frequency(playlist_results, top_k=10)
+        print(f"🎵 Recommended {len(track_ids)} tracks")
 
-        # 유사도 기준으로 내림차순 정렬
-        sorted_items = sorted(
-            all_items,
-            key=lambda x: x.get("similarity", 0),
-            reverse=True
-        )
+        if not track_ids:
+            print("⚠️ No tracks found in playlists")
+            return {"results": []}
 
-        # 상위 10개 선택
-        top_items = sorted_items[:10]
+        # 3. Supabase에서 트랙 메타데이터 가져오기
+        response = supabase.table("tracks").select("track_key, title, artist, album, pos_count").in_("track_key", track_ids).execute()
 
-        # =============== 5) 반환 포맷 변환 ===============
+        if not response.data:
+            print("⚠️ No track metadata found")
+            return {"results": []}
+
+        # 4. 결과 포맷 변환 (원래 순서 유지)
+        track_data_map = {item["track_key"]: item for item in response.data}
         results = []
-        for item in top_items:
-            results.append(
-                {
-                    "track_key": item["track_key"],
-                    "track_name": item.get("title"),
-                    "pos_count": item.get("pos_count"),
-                    "similarity": item.get("similarity", 0),
-                }
-            )
+        for track_id in track_ids:
+            if track_id in track_data_map:
+                item = track_data_map[track_id]
+                results.append(
+                    {
+                        "track_key": item["track_key"],
+                        "track_name": item.get("title"),
+                        "artist": item.get("artist"),
+                        "album": item.get("album"),
+                        "pos_count": item.get("pos_count"),
+                    }
+                )
 
         print(f"✅ Final selected: {len(results)} tracks")
-        print(f"📦 Response: {results}")
         return {"results": results}
 
     except Exception as e:
