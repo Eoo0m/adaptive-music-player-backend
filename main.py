@@ -91,13 +91,9 @@ playlist_dim = 256  # 플레이리스트 임베딩 차원
 
 # 플레이리스트 CLIP 모델 로드 (텍스트 임베딩 프로젝션용)
 playlist_clip_model = CaptionPlaylistCLIP(
-    caption_dim=title_dim,
-    playlist_dim=playlist_dim,
-    out_dim=512
+    caption_dim=title_dim, playlist_dim=playlist_dim, out_dim=512
 ).to(device)
-playlist_clip_model.load_state_dict(
-    torch.load("clip_best.pt", map_location=device)
-)
+playlist_clip_model.load_state_dict(torch.load("clip_best.pt", map_location=device))
 playlist_clip_model.eval()
 
 print(f"✅ Playlist CLIP model loaded on {device}")
@@ -212,11 +208,7 @@ def search_playlists_by_keyword(keyword: str, top_k: int = 50):
     # 4. 결과 반환 (playlist_id, track_ids, similarity)
     results = []
     for item in response.data:
-        results.append((
-            item["playlist_id"],
-            item["track_ids"],
-            item["similarity"]
-        ))
+        results.append((item["playlist_id"], item["track_ids"], item["similarity"]))
 
     return results
 
@@ -246,7 +238,9 @@ def recommend_tracks_by_weighted_frequency(playlist_results, top_k: int = 10):
                     track_list = json.loads(track_ids_data)
                 except json.JSONDecodeError:
                     # JSON 파싱 실패 시 "|"로 구분된 문자열로 시도
-                    track_list = [t.strip() for t in track_ids_data.split("|") if t.strip()]
+                    track_list = [
+                        t.strip() for t in track_ids_data.split("|") if t.strip()
+                    ]
             else:
                 track_list = track_ids_data
 
@@ -255,7 +249,9 @@ def recommend_tracks_by_weighted_frequency(playlist_results, top_k: int = 10):
                 track_scores[track_id] += similarity_score
 
     # 상위 k개 트랙 선택
-    sorted_tracks = sorted(track_scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
+    sorted_tracks = sorted(track_scores.items(), key=lambda x: x[1], reverse=True)[
+        :top_k
+    ]
 
     return [track_id for track_id, _ in sorted_tracks]
 
@@ -420,8 +416,11 @@ async def search_songs(request: SearchRequest):
     except Exception as e:
         print(f"❌ Search error: {e}")
         import traceback
+
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Search service unavailable: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Search service unavailable: {str(e)}"
+        )
 
 
 @app.post("/recommend")
@@ -441,7 +440,9 @@ async def recommend(request: RecommendRequest):
             },
         ).execute()
 
-        print(f"📊 Supabase response: {response.data is not None}, count: {len(response.data) if response.data else 0}")
+        print(
+            f"📊 Supabase response: {response.data is not None}, count: {len(response.data) if response.data else 0}"
+        )
 
         if response.data is None:
             raise HTTPException(status_code=500, detail="Recommendation failed")
@@ -470,6 +471,7 @@ async def recommend(request: RecommendRequest):
     except Exception as e:
         print(f"❌ Recommend error: {e}")
         import traceback
+
         traceback.print_exc()
         raise HTTPException(
             status_code=500, detail=f"Recommendation service unavailable: {str(e)}"
@@ -486,7 +488,9 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
         import random
 
         print(f"🔍 Finding Spotify tracks for {len(request.tracks)} recommendations")
-        print(f"📋 First track sample: {request.tracks[0] if request.tracks else 'empty'}")
+        print(
+            f"📋 First track sample: {request.tracks[0] if request.tracks else 'empty'}"
+        )
 
         out = []
         # 빈 리스트 체크
@@ -526,7 +530,9 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
                             }
                         )
                 else:
-                    print(f"⚠️ Spotify search failed for {track_name}: {response.status_code}")
+                    print(
+                        f"⚠️ Spotify search failed for {track_name}: {response.status_code}"
+                    )
 
         print(f"✅ Found {len(out)} Spotify tracks")
         return {"spotify_tracks": out}
@@ -534,8 +540,11 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
     except Exception as e:
         print(f"❌ find-spotify-tracks error: {e}")
         import traceback
+
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to find Spotify tracks: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to find Spotify tracks: {str(e)}"
+        )
 
 
 # ============== Keyword Search ==============
@@ -573,7 +582,12 @@ async def search_by_keyword(request: KeywordSearchRequest):
             return {"results": []}
 
         # 3. Supabase에서 트랙 메타데이터 가져오기
-        response = supabase.table("tracks").select("track_key, title, artist, album, pos_count").in_("track_key", track_ids).execute()
+        response = (
+            supabase.table("track_embeddings")
+            .select("track_key, title, artist, album, pos_count")
+            .in_("track_key", track_ids)
+            .execute()
+        )
 
         if not response.data:
             print("⚠️ No track metadata found")
