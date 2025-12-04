@@ -485,8 +485,6 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
         raise HTTPException(status_code=400, detail="Missing access token or tracks")
 
     try:
-        import random
-
         print(f"🔍 Finding Spotify tracks for {len(request.tracks)} recommendations")
         print(
             f"📋 First track sample: {request.tracks[0] if request.tracks else 'empty'}"
@@ -498,10 +496,11 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
             print("⚠️ No tracks to search")
             return {"spotify_tracks": []}
 
-        shuffled = random.sample(request.tracks, min(len(request.tracks), 10))
+        # 유사도 순서 유지 (상위 10개만)
+        top_tracks = request.tracks[:10]
 
         async with httpx.AsyncClient() as client:
-            for track in shuffled:
+            for track in top_tracks:
                 # track 필드 확인 및 안전하게 접근
                 track_name = track.get("track") or track.get("track_name")
                 artist_name = track.get("artist") or track.get("artist_name")
