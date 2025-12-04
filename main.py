@@ -499,8 +499,15 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
         # 유사도 순서 유지 (상위 10개만)
         top_tracks = request.tracks[:10]
 
+        print("📋 Top 10 tracks to search (in similarity order):")
+        for i, track in enumerate(top_tracks):
+            track_name = track.get("track") or track.get("track_name")
+            artist_name = track.get("artist") or track.get("artist_name")
+            similarity = track.get("similarity", "N/A")
+            print(f"  {i+1}. {track_name} - {artist_name} (similarity: {similarity})")
+
         async with httpx.AsyncClient() as client:
-            for track in top_tracks:
+            for idx, track in enumerate(top_tracks):
                 # track 필드 확인 및 안전하게 접근
                 track_name = track.get("track") or track.get("track_name")
                 artist_name = track.get("artist") or track.get("artist_name")
@@ -520,6 +527,7 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
                     items = data.get("tracks", {}).get("items", [])
                     if items and len(items) > 0:
                         item = items[0]
+                        print(f"  ✅ [{idx+1}] Matched: {item['name']} - {item['artists'][0]['name']}")
                         out.append(
                             {
                                 **track,
