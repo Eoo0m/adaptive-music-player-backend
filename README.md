@@ -5,11 +5,13 @@
 
 https://dynplayer.win
 
-![video_3x](https://github.com/user-attachments/assets/c6fdbc9d-1f6a-4fa3-aa49-c39b7634b802)
-
 - 앨범 커버 클릭시 검색창 노출
 
+![video_3x](https://github.com/user-attachments/assets/c6fdbc9d-1f6a-4fa3-aa49-c39b7634b802)
 
+
+
+## architecture
 
 <img width="391" height="224" alt="image" src="https://github.com/user-attachments/assets/8bb8a8ef-581c-42d1-b88a-ce78f3ede42c" />
 
