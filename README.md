@@ -59,16 +59,16 @@ https://dynplayer.win
 
 
 
-## 🧠 모델 구조
+## 모델 구조
 
-✔ playlist_clip_model
+✔ clip_projection
 	•	Caption(text embedding 3072) → playlist embedding 공간(512) projection
 	•	Playlist embedding(256→512 projection)과 cosine similarity로 검색
 	•	Residual block + GELU + LayerNorm 기반 MLP
 
 
 
-## 🗄 DB 구조 (Supabase + pgvector)
+## DB 구조 (Supabase + pgvector)
 
 ### playlists 테이블: 검색 쿼리와 비교를 위해 투영된 임베딩
 	•	playlist_id (PK)
