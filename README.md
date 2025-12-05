@@ -16,7 +16,7 @@ https://dynplayer.win
 <img width="391" height="224" alt="image" src="https://github.com/user-attachments/assets/8bb8a8ef-581c-42d1-b88a-ce78f3ede42c" />
 
 
-## 🔑 Spotify OAuth
+## Spotify OAuth
 	•	/login
 	•	Spotify OAuth 로그인 시작
 	•	/callback
@@ -25,16 +25,16 @@ https://dynplayer.win
 	•	Refresh Token으로 Access Token 재발급
 
 
-## 🔍 검색 기능
+## 검색 기능
 
-### 🔎 /search-songs — 제목 기반 검색
+### /search-songs — 제목 기반 검색
 	•	입력: query (곡 제목)
 	•	Supabase 함수 search_tracks_by_title 호출
 	•	유사 제목 10개 반환
 
 
 
-### 🧠 /search-by-keyword — 키워드 기반 벡터 검색
+### /search-by-keyword — 키워드 기반 벡터 검색
 	•	OpenAI text-embedding-3-large → 3072차원 텍스트 임베딩 생성
 	•	playlist_clip_model 로 텍스트 → playlist 공간(512차원) projection
 	•	Supabase 함수 match_playlist_embeddings으로 가장 유사한 playlist TOP 50 조회
@@ -43,25 +43,19 @@ https://dynplayer.win
 
 
 
-### 🎵 /find-spotify-tracks — 추천 결과 Spotify 매핑
+### /find-spotify-tracks — 추천 결과 Spotify 매핑
 	•	추천된 트랙(title + artist) → Spotify Search API로 실제 트랙 매핑
 	•	Spotify track object, URI, preview_url 반환
 	•	음원 재생을 위한 필수 단계
 
 
-## 🎧 추천 기능
+## 추천 기능
 
-### 🎧 /recommend — 특정 트랙 기반 추천
+### /recommend — 특정 트랙 기반 추천
 	•	입력: track_key
 	•	Supabase 함수 match_tracks_by_key
 → pgvector 코사인 유사도로 가장 가까운 embedding N개 추천
 	•	결과는 /find-spotify-tracks 로 Spotify 트랙 정보 매핑하여 재생 가능하게 처리
-
-
-
-## 📡 Logging
-
-📝 /log-listening — 사용자 청취 기록 저장
 
 
 
@@ -76,16 +70,16 @@ https://dynplayer.win
 
 ## 🗄 DB 구조 (Supabase + pgvector)
 
-✔ playlists 테이블
+### playlists 테이블: 검색 쿼리와 비교를 위해 투영된 임베딩
 	•	playlist_id (PK)
 	•	track_ids (JSON array)
-	•	embedding (vector 512) ← playlist projector 출력
+	•	embedding (vector 512)
 
-✔ track_embeddings 테이블
+### track_embeddings 테이블: 대조학습으로 생성된 트랙 임베딩
 	•	track_key
 	•	title, artist, album
-	•	embedding (vector 256) ← 음악 모델 embedding
-	•	pos_count (playlist 허브곡 조정용)
+	•	embedding (vector 256)
+	•	pos_count 
 
 
 
