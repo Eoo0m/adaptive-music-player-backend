@@ -86,3 +86,61 @@ https://dynplayer.win
 	•	title, artist, album
 	•	embedding (vector 256) ← 음악 모델 embedding
 	•	pos_count (playlist 허브곡 조정용)
+
+
+
+# experiment
+## 텍스트 검색으로 플레이리스트를 찾아도되는데 굳이 임베딩을 학습하는 이유
+→ 텍스트로 나타낼 수 없는 음악적 특성 반영
+
+### **검색어: 외힙 (Top 10 Playlists)**
+
+| **순위** | **점수** | **플레이리스트 이름** | **Playlist ID** |
+| --- | --- | --- | --- |
+| 1 | **0.6885** | Best Rap Songs of 2019 | 0mPHjoMfKNHbVzo2U4LGqK |
+| 2 | 0.6835 | Pop Smoke Radio | 37i9dQZF1E4pSe4zcPlJan |
+| 3 | 0.6806 | Billboards R&B/Hip-Hop Top 100 | 3qVzuSvpTZZ7EVlmn1gQ5r |
+| 4 | 0.6756 | 외힙 입문하기 (Hip Hop Starter Pack) | 5zUqj3NUgAb2voGZHDMwlc |
+| 5 | 0.6730 | 운동할때 듣는 외힙 | 56A97TgFcRRLzWCCcVB1Vs |
+| 6 | 0.6717 | Hip Hop Hits / Pop Rap Mix | 5oUjcXbrveXjPvBy9udX76 |
+| 7 | 0.6637 | 외국힙합갤러리 | 2Y9oAbVygOt0QA2EqO5Hho |
+| 8 | 0.6633 | 좆되게 힙한 팝 | 7A4axQQsLUwtyKrcP5oTwJ |
+| 9 | 0.6575 | 카리나가 좋아하는 외힙 플리 | 63AmXMQbA09OwYzs5PiOty |
+| 10 | 0.6575 | Unknown | 0vIm6DBpjcaYAuwGQCQda4 |
+
+---
+
+### **검색어: 발라드 (Top 10 Playlists)**
+
+| **순위** | **점수** | **플레이리스트 이름** | **Playlist ID** |
+| --- | --- | --- | --- |
+| 1 | **0.7666** | 노래방에서 부르기 딱!! 고음 발라드 | 2ohiol7bCGozbMjwvsMLoM |
+| 2 | 0.7647 | 노래방 작살내는 차트(남자버전) | 6tLL7auLLu0vUjb3Q3w93z |
+| 3 | 0.7629 | 비오는날 감성발라드 | 4SvgdVWTQzvsuYGw1hbXWG |
+| 4 | 0.7616 | 2000년대 발라드 명곡 | 13t0ABFN6fTdSyz3ISPlxN |
+| 5 | 0.7490 | 밥만 잘 먹더라 | 4lkkOJ8ZugaS7r6bOAWBhZ |
+| 6 | 0.7464 | Unknown | 5NI4eSsPnzaFjrZEl1iw6X |
+| 7 | 0.7461 | 가을에 꺼내듣기 좋은 발라드 | 6c9RSN6hEHAPdWbbPzBkpE |
+| 8 | 0.7422 | 극 고음 발라드 개띵곡 | 1Eh3lW7cG5wJNE7cuJ48tY |
+| 9 | 0.7417 | 술 마실 때 틀려고 만든 플리 | 2tBCPWD3hyfJZoSSPcxhDS |
+| 10 | 0.7399 | 엠씨더맥스 플레이리스트 | 3ENgMmp2wXEkkR90Xmq6JZ |
+
+---
+
+### **검색어: cozy pop (Top 10 Playlists)**
+
+| **순위** | **점수** | **플레이리스트 이름** | **Playlist ID** |
+| --- | --- | --- | --- |
+| 1 | **0.6203** | Cozy Pop Mix | 37i9dQZF1EIgUNZWgFoh9c |
+| 2 | 0.6118 | Soft aesthetic songs ♡ | 7snUniDZ1aZhbbGJvw6KlF |
+| 3 | 0.5880 | cute romantic songs for fake scenarios | 4vSobDIRZvZk9Hfx8Yk36z |
+| 4 | 0.5838 | love songs <3 | 0nevMyChAKVxX6sGwby5A6 |
+| 5 | 0.5816 | most love & romantic songs ever | 5NxUcSM8u89MIbdT9Cq78C |
+| 6 | 0.5695 | my love mine all mine vibes | 1uAGveL23B7n9q1VR21ZTZ |
+| 7 | 0.5662 | I collect these romantic songs just for you | 0COrvGg2BG9O66FLZscNxf |
+| 8 | 0.5617 | ✩ — 잠 ⸰ֺ⭑ | 3RFUnP6lbQowqZUD0JqCbO |
+| 9 | 0.5558 | calm songs to relax my anxietyy | 3l6b0zuXjgyPxLK6PIAqED |
+| 10 | 0.5522 | Winter vibes ⋆⁺₊❅. | 15lesHzhv9X0fbEWztEYon |
+
+---
+-> 텍스트의 의미가 유사한 플레이리스트만 검색되는 것이 아니라 장르/무드/특성 등이 유사한 음악이 검색되는 것을 볼 수 있다.
