@@ -89,11 +89,11 @@ https://dynplayer.win
 
 
 
-# experiment
+# Experiment
 ## 텍스트 검색으로 플레이리스트를 찾아도되는데 굳이 임베딩을 학습하는 이유
 → 텍스트로 나타낼 수 없는 음악적 특성 반영
 
-### **검색어: 외힙 (Top 10 Playlists)**
+### **query: 외힙 (Top 10 Playlists)**
 
 | **순위** | **점수** | **플레이리스트 이름** | **Playlist ID** |
 | --- | --- | --- | --- |
@@ -110,7 +110,7 @@ https://dynplayer.win
 
 ---
 
-### **검색어: 발라드 (Top 10 Playlists)**
+### **query: 발라드 (Top 10 Playlists)**
 
 | **순위** | **점수** | **플레이리스트 이름** | **Playlist ID** |
 | --- | --- | --- | --- |
@@ -127,7 +127,7 @@ https://dynplayer.win
 
 ---
 
-### **검색어: cozy pop (Top 10 Playlists)**
+### **query: cozy pop (Top 10 Playlists)**
 
 | **순위** | **점수** | **플레이리스트 이름** | **Playlist ID** |
 | --- | --- | --- | --- |
