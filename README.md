@@ -8,9 +8,10 @@ https://dynplayer.win
 ![video_3x](https://github.com/user-attachments/assets/c6fdbc9d-1f6a-4fa3-aa49-c39b7634b802)
 
 - 앨범 커버 클릭시 검색창 노출
-- 너무 많은 클릭시 스포티파이 오류 발생
 
-<img width="921" height="499" alt="Screenshot 2025-11-30 at 8 30 31 PM" src="https://github.com/user-attachments/assets/3fc00617-038a-496e-a4a4-00741dadb91a" />
+
+
+<img width="391" height="224" alt="image" src="https://github.com/user-attachments/assets/8bb8a8ef-581c-42d1-b88a-ce78f3ede42c" />
 
 
 ## 🔑 Spotify OAuth
