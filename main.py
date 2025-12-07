@@ -403,8 +403,12 @@ async def search_songs(request: SearchRequest):
             cover_image_b64 = None
             if item.get("cover_image"):
                 try:
-                    # bytea는 이미 bytes 형식이므로 base64 인코딩만 수행
-                    cover_image_b64 = base64.b64encode(item["cover_image"]).decode('utf-8')
+                    if isinstance(item["cover_image"], str):
+                        # 이미 문자열이면 그대로 사용
+                        cover_image_b64 = item["cover_image"]
+                    elif isinstance(item["cover_image"], bytes):
+                        # bytes면 base64 인코딩
+                        cover_image_b64 = base64.b64encode(item["cover_image"]).decode('utf-8')
                 except Exception as e:
                     print(f"⚠️ Failed to encode cover_image for {item.get('track_key')}: {e}")
 
@@ -463,8 +467,12 @@ async def recommend(request: RecommendRequest):
             cover_image_b64 = None
             if item.get("cover_image"):
                 try:
-                    # bytea는 이미 bytes 형식이므로 base64 인코딩만 수행
-                    cover_image_b64 = base64.b64encode(item["cover_image"]).decode('utf-8')
+                    if isinstance(item["cover_image"], str):
+                        # 이미 문자열이면 그대로 사용
+                        cover_image_b64 = item["cover_image"]
+                    elif isinstance(item["cover_image"], bytes):
+                        # bytes면 base64 인코딩
+                        cover_image_b64 = base64.b64encode(item["cover_image"]).decode('utf-8')
                 except Exception as e:
                     print(f"⚠️ Failed to encode cover_image for {item.get('track_key')}: {e}")
 
@@ -629,8 +637,12 @@ async def search_by_keyword(request: KeywordSearchRequest):
                 cover_image_b64 = None
                 if item.get("cover_image"):
                     try:
-                        # bytea는 이미 bytes 형식이므로 base64 인코딩만 수행
-                        cover_image_b64 = base64.b64encode(item["cover_image"]).decode('utf-8')
+                        if isinstance(item["cover_image"], str):
+                            # 이미 문자열이면 그대로 사용
+                            cover_image_b64 = item["cover_image"]
+                        elif isinstance(item["cover_image"], bytes):
+                            # bytes면 base64 인코딩
+                            cover_image_b64 = base64.b64encode(item["cover_image"]).decode('utf-8')
                     except Exception as e:
                         print(f"⚠️ Failed to encode cover_image for {track_id}: {e}")
 
