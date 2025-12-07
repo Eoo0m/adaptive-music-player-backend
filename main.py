@@ -447,7 +447,7 @@ async def recommend(request: RecommendRequest):
         if response.data is None:
             raise HTTPException(status_code=500, detail="Recommendation failed")
 
-        # 결과 포맷 변환
+        # 결과 포맷 변환 (cover_image 포함)
         recommendations = [
             {
                 "track_id": item["id"],
@@ -457,6 +457,7 @@ async def recommend(request: RecommendRequest):
                 "album": item["album"],
                 "pos_count": item["pos_count"],
                 "similarity": item.get("similarity", 0),
+                "cover_image": item.get("cover_image"),  # cover_image 추가
             }
             for item in response.data
         ]
@@ -588,10 +589,10 @@ async def search_by_keyword(request: KeywordSearchRequest):
             print("⚠️ No tracks found in playlists")
             return {"results": []}
 
-        # 3. Supabase에서 트랙 메타데이터 가져오기
+        # 3. Supabase에서 트랙 메타데이터 가져오기 (cover_image 포함)
         response = (
             supabase.table("track_embeddings")
-            .select("track_key, title, artist, album, pos_count")
+            .select("track_key, title, artist, album, pos_count, cover_image")
             .in_("track_key", track_ids)
             .execute()
         )
@@ -613,6 +614,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
                         "artist": item.get("artist"),
                         "album": item.get("album"),
                         "pos_count": item.get("pos_count"),
+                        "cover_image": item.get("cover_image"),
                     }
                 )
 
