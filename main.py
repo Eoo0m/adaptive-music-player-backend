@@ -404,17 +404,22 @@ async def search_songs(request: SearchRequest):
             if item.get("cover_image"):
                 try:
                     cover_data = item["cover_image"]
+                    print(f"🔍 Title search - cover_data type: {type(cover_data)}, first 50 chars: {str(cover_data)[:50]}")
+
                     if isinstance(cover_data, str):
                         if cover_data.startswith('\\x'):
                             # 16진수 문자열을 bytes로 변환 후 base64 인코딩
                             cover_data = bytes.fromhex(cover_data.replace('\\x', ''))
                             cover_image_b64 = base64.b64encode(cover_data).decode('utf-8')
+                            print(f"✅ Converted hex string to base64")
                         else:
                             # 이미 base64 문자열이면 그대로 사용
                             cover_image_b64 = cover_data
+                            print(f"✅ Using existing base64 string")
                     elif isinstance(cover_data, bytes):
                         # bytes면 base64 인코딩
                         cover_image_b64 = base64.b64encode(cover_data).decode('utf-8')
+                        print(f"✅ Converted bytes to base64")
                 except Exception as e:
                     print(f"⚠️ Failed to encode cover_image for {item.get('track_key')}: {e}")
 
