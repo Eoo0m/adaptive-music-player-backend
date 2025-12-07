@@ -408,11 +408,10 @@ async def search_songs(request: SearchRequest):
 
                     if isinstance(cover_data, str):
                         if cover_data.startswith('\\x'):
-                            # 16진수 문자열 형식: \x2f\x39\x6a... → 2f396a...
+                            # 16진수 문자열 형식: \x2f\x39\x6a... → 이미 base64 문자열임
                             hex_string = ''.join(cover_data.split('\\x')[1:])
-                            cover_data = bytes.fromhex(hex_string)
-                            cover_image_b64 = base64.b64encode(cover_data).decode('utf-8')
-                            print(f"✅ Converted hex string to base64, length: {len(cover_image_b64)}")
+                            cover_image_b64 = bytes.fromhex(hex_string).decode('utf-8')
+                            print(f"✅ Decoded hex to base64 string, length: {len(cover_image_b64)}")
                         else:
                             # 이미 base64 문자열이면 그대로 사용
                             cover_image_b64 = cover_data
@@ -482,10 +481,9 @@ async def recommend(request: RecommendRequest):
                     cover_data = item["cover_image"]
                     if isinstance(cover_data, str):
                         if cover_data.startswith('\\x'):
-                            # 16진수 문자열 형식: \x2f\x39\x6a... → 2f396a...
+                            # 16진수 문자열 형식: \x2f\x39\x6a... → 이미 base64 문자열임
                             hex_string = ''.join(cover_data.split('\\x')[1:])
-                            cover_data = bytes.fromhex(hex_string)
-                            cover_image_b64 = base64.b64encode(cover_data).decode('utf-8')
+                            cover_image_b64 = bytes.fromhex(hex_string).decode('utf-8')
                         else:
                             # 이미 base64 문자열이면 그대로 사용
                             cover_image_b64 = cover_data
@@ -659,10 +657,9 @@ async def search_by_keyword(request: KeywordSearchRequest):
                         cover_data = item["cover_image"]
                         if isinstance(cover_data, str):
                             if cover_data.startswith('\\x'):
-                                # 16진수 문자열 형식: \x2f\x39\x6a... → 2f396a...
+                                # 16진수 문자열 형식: \x2f\x39\x6a... → 이미 base64 문자열임
                                 hex_string = ''.join(cover_data.split('\\x')[1:])
-                                cover_data = bytes.fromhex(hex_string)
-                                cover_image_b64 = base64.b64encode(cover_data).decode('utf-8')
+                                cover_image_b64 = bytes.fromhex(hex_string).decode('utf-8')
                             else:
                                 # 이미 base64 문자열이면 그대로 사용
                                 cover_image_b64 = cover_data
