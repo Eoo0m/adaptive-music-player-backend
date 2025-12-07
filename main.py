@@ -396,9 +396,19 @@ async def search_songs(request: SearchRequest):
         if response.data is None:
             raise HTTPException(status_code=500, detail="Search failed")
 
-        # 결과 포맷 변환
-        results = [
-            {
+        # 결과 포맷 변환 (cover_image를 base64로 인코딩)
+        results = []
+        for item in response.data:
+            # cover_image를 base64로 인코딩
+            cover_image_b64 = None
+            if item.get("cover_image"):
+                try:
+                    # bytea는 이미 bytes 형식이므로 base64 인코딩만 수행
+                    cover_image_b64 = base64.b64encode(item["cover_image"]).decode('utf-8')
+                except Exception as e:
+                    print(f"⚠️ Failed to encode cover_image for {item.get('track_key')}: {e}")
+
+            results.append({
                 "track_id": item["id"],
                 "track_key": item["track_key"],
                 "track": item["title"],
@@ -406,9 +416,8 @@ async def search_songs(request: SearchRequest):
                 "album": item["album"],
                 "pos_count": item["pos_count"],
                 "similarity": item.get("similarity", 0),
-            }
-            for item in response.data
-        ]
+                "cover_image": cover_image_b64,
+            })
 
         print(f"✅ Found {len(results)} tracks")
         return {"results": results}
@@ -447,9 +456,19 @@ async def recommend(request: RecommendRequest):
         if response.data is None:
             raise HTTPException(status_code=500, detail="Recommendation failed")
 
-        # 결과 포맷 변환 (cover_image 포함)
-        recommendations = [
-            {
+        # 결과 포맷 변환 (cover_image를 base64로 인코딩)
+        recommendations = []
+        for item in response.data:
+            # cover_image를 base64로 인코딩
+            cover_image_b64 = None
+            if item.get("cover_image"):
+                try:
+                    # bytea는 이미 bytes 형식이므로 base64 인코딩만 수행
+                    cover_image_b64 = base64.b64encode(item["cover_image"]).decode('utf-8')
+                except Exception as e:
+                    print(f"⚠️ Failed to encode cover_image for {item.get('track_key')}: {e}")
+
+            recommendations.append({
                 "track_id": item["id"],
                 "track_key": item["track_key"],
                 "track": item["title"],
@@ -457,10 +476,8 @@ async def recommend(request: RecommendRequest):
                 "album": item["album"],
                 "pos_count": item["pos_count"],
                 "similarity": item.get("similarity", 0),
-                "cover_image": item.get("cover_image"),  # cover_image 추가
-            }
-            for item in response.data
-        ]
+                "cover_image": cover_image_b64,
+            })
 
         print(f"✅ Returning {len(recommendations)} recommendations")
 
@@ -601,12 +618,22 @@ async def search_by_keyword(request: KeywordSearchRequest):
             print("⚠️ No track metadata found")
             return {"results": []}
 
-        # 4. 결과 포맷 변환 (원래 순서 유지)
+        # 4. 결과 포맷 변환 (원래 순서 유지, cover_image를 base64로 인코딩)
         track_data_map = {item["track_key"]: item for item in response.data}
         results = []
         for track_id in track_ids:
             if track_id in track_data_map:
                 item = track_data_map[track_id]
+
+                # cover_image를 base64로 인코딩
+                cover_image_b64 = None
+                if item.get("cover_image"):
+                    try:
+                        # bytea는 이미 bytes 형식이므로 base64 인코딩만 수행
+                        cover_image_b64 = base64.b64encode(item["cover_image"]).decode('utf-8')
+                    except Exception as e:
+                        print(f"⚠️ Failed to encode cover_image for {track_id}: {e}")
+
                 results.append(
                     {
                         "track_key": item["track_key"],
@@ -614,7 +641,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
                         "artist": item.get("artist"),
                         "album": item.get("album"),
                         "pos_count": item.get("pos_count"),
-                        "cover_image": item.get("cover_image"),
+                        "cover_image": cover_image_b64,
                     }
                 )
 
