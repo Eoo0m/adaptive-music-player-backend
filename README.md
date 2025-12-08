@@ -20,14 +20,6 @@ https://dynplayer.win
 <img width="391" height="224" alt="image" src="https://github.com/user-attachments/assets/8bb8a8ef-581c-42d1-b88a-ce78f3ede42c" />
 
 
-## Spotify OAuth
-	•	/login
-	•	Spotify OAuth 로그인 시작
-	•	/callback
-	•	Code → Access Token, Refresh Token 교환
-	•	/refresh_token
-	•	Refresh Token으로 Access Token 재발급
-
 
 ## 검색 기능
 
@@ -62,12 +54,8 @@ https://dynplayer.win
 	•	결과는 /find-spotify-tracks 로 Spotify 트랙 정보 매핑하여 재생 가능하게 처리
 
 
-
-## 모델 구조
-
-✔ clip_projection
-	•	Caption(text embedding 3072) → playlist embedding 공간(512) projection
-	•	Playlist embedding(256→512 projection)과 cosine similarity로 검색
+### clip_projection
+	•	Caption(text embedding 3072) → embedding 공간으로 projection하여 playlist caption - playlist embedding clip 학습
 	•	Residual block + GELU + LayerNorm 기반 MLP
 
 
