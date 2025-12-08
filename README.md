@@ -125,8 +125,12 @@ track_C  : track_A|track_B|track_H
 
 ## uniformity loss 적용
 
+$$
 \mathcal{L}_{\text{uni}} =
 \log \mathbb{E}_{x,y}\left[ e^{-t \|x - y\|^2} \right]
+$$
+
+
 많은 벡터가 가까이 몰리면 평균값이 크게 증가 → uniformity loss 커짐
 벡터들이 hypersphere에 균일하게 퍼지도록 규제함.
 
