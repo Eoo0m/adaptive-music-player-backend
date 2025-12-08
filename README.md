@@ -6,8 +6,12 @@
 https://dynplayer.win
 
 - 앨범 커버 클릭시 검색창 노출
+- 음악 재생 개발자 id로만 가능, 재생없이 추천 클릭!
 
 ![video_3x](https://github.com/user-attachments/assets/c6fdbc9d-1f6a-4fa3-aa49-c39b7634b802)
+
+
+
 
 
 
@@ -84,6 +88,52 @@ https://dynplayer.win
 
 
 # Experiment
+
+## 평가방식
+
+기본 데이터셋
+
+```python
+# playlist_id |track_ids
+# pl_001      |track_D|track_B|track_C|track_A|track_E
+# pl_002      |track_Z|track_F|track_G|track_B|track_X
+# pl_003      |track_A|track_C|track_H|track_I|track_J
+
+# track_id |positive_track_ids
+track_A  : track_C|track_E
+track_B  : track_C|track_D|track_G|track_X
+track_C  : track_A|track_B|track_H
+
+```
+
+플레이리스트에서 20퍼센트 제거 후 트랙별 이웃 재구성
+
+```python
+# playlist_id | track_ids
+# pl_001      |track_D|track_B|track_C|track_A|
+# pl_002      |track_Z|track_F|track_G|track_B|
+# pl_003      |track_A|track_C|track_H|track_I|
+
+# track_id |positive_track_ids
+track_A  : track_C
+track_B  : track_C|track_D|track_G
+track_C  : track_A|track_B|track_H
+
+```
+
+이과정에서 train에 없는 데이터 생길경우 제거.
+
+## uniformity loss 적용
+
+
+<img width="528" height="229" alt="image" src="https://github.com/user-attachments/assets/855759f6-1c1f-40d0-8a05-d6be903fe2a9" />
+
+<img width="557" height="228" alt="image" src="https://github.com/user-attachments/assets/5952fd86-83ab-46ad-b9a6-2b198b29c2ba" />
+
+-> uniformity loss 적용시, 인기곡과 비인기곡의 차이 감소, 성능도 상승
+
+
+
 
 ## 텍스트 검색으로 플레이리스트를 찾아도되는데 굳이 임베딩을 학습하는 이유?
 → 텍스트로 나타낼 수 없는 음악적 특성 반영
