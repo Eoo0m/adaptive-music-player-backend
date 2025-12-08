@@ -139,6 +139,7 @@ $$
 
 <img width="557" height="228" alt="image" src="https://github.com/user-attachments/assets/5952fd86-83ab-46ad-b9a6-2b198b29c2ba" />
 
+기존에는 인기곡이 경우 다른 트랙과의 강한 유사도를 보였음.
 -> uniformity loss 적용시, 인기곡과 비인기곡의 차이 감소, 성능도 상승
 
 
