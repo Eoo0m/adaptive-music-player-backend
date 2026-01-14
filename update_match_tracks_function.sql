@@ -1,4 +1,4 @@
--- match_tracks_by_key 함수 수정 - cover_image 포함
+-- match_tracks_by_key 함수 수정 - cover_image_url 포함
 
 -- 기존 함수 삭제
 DROP FUNCTION IF EXISTS match_tracks_by_key(text, integer);
@@ -12,7 +12,7 @@ RETURNS TABLE (
     artist text,
     album text,
     pos_count int,
-    cover_image bytea,
+    cover_image_url text,
     similarity float
 )
 LANGUAGE plpgsql
@@ -26,7 +26,7 @@ BEGIN
         te.artist,
         te.album,
         te.pos_count,
-        te.cover_image,
+        te.cover_image_url,
         1 - (te.embedding <=> (
             SELECT embedding
             FROM track_embeddings
