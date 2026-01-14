@@ -396,33 +396,9 @@ async def search_songs(request: SearchRequest):
         if response.data is None:
             raise HTTPException(status_code=500, detail="Search failed")
 
-        # 결과 포맷 변환 (cover_image를 base64로 인코딩)
+        # 결과 포맷 변환
         results = []
         for item in response.data:
-            # cover_image를 base64로 인코딩
-            cover_image_b64 = None
-            if item.get("cover_image"):
-                try:
-                    cover_data = item["cover_image"]
-                    print(f"🔍 Title search - cover_data type: {type(cover_data)}, first 50 chars: {str(cover_data)[:50]}")
-
-                    if isinstance(cover_data, str):
-                        if cover_data.startswith('\\x'):
-                            # 16진수 문자열 형식: \x2f\x39\x6a... → 이미 base64 문자열임
-                            hex_string = ''.join(cover_data.split('\\x')[1:])
-                            cover_image_b64 = bytes.fromhex(hex_string).decode('utf-8')
-                            print(f"✅ Decoded hex to base64 string, length: {len(cover_image_b64)}")
-                        else:
-                            # 이미 base64 문자열이면 그대로 사용
-                            cover_image_b64 = cover_data
-                            print(f"✅ Using existing base64 string")
-                    elif isinstance(cover_data, bytes):
-                        # bytes면 base64 인코딩
-                        cover_image_b64 = base64.b64encode(cover_data).decode('utf-8')
-                        print(f"✅ Converted bytes to base64")
-                except Exception as e:
-                    print(f"⚠️ Failed to encode cover_image for {item.get('track_key')}: {e}")
-
             results.append({
                 "track_id": item["id"],
                 "track_key": item["track_key"],
@@ -431,7 +407,7 @@ async def search_songs(request: SearchRequest):
                 "album": item["album"],
                 "pos_count": item["pos_count"],
                 "similarity": item.get("similarity", 0),
-                "cover_image": cover_image_b64,
+                "cover_image_url": item.get("cover_image_url"),
             })
 
         print(f"✅ Found {len(results)} tracks")
@@ -471,28 +447,9 @@ async def recommend(request: RecommendRequest):
         if response.data is None:
             raise HTTPException(status_code=500, detail="Recommendation failed")
 
-        # 결과 포맷 변환 (cover_image를 base64로 인코딩)
+        # 결과 포맷 변환
         recommendations = []
         for item in response.data:
-            # cover_image를 base64로 인코딩
-            cover_image_b64 = None
-            if item.get("cover_image"):
-                try:
-                    cover_data = item["cover_image"]
-                    if isinstance(cover_data, str):
-                        if cover_data.startswith('\\x'):
-                            # 16진수 문자열 형식: \x2f\x39\x6a... → 이미 base64 문자열임
-                            hex_string = ''.join(cover_data.split('\\x')[1:])
-                            cover_image_b64 = bytes.fromhex(hex_string).decode('utf-8')
-                        else:
-                            # 이미 base64 문자열이면 그대로 사용
-                            cover_image_b64 = cover_data
-                    elif isinstance(cover_data, bytes):
-                        # bytes면 base64 인코딩
-                        cover_image_b64 = base64.b64encode(cover_data).decode('utf-8')
-                except Exception as e:
-                    print(f"⚠️ Failed to encode cover_image for {item.get('track_key')}: {e}")
-
             recommendations.append({
                 "track_id": item["id"],
                 "track_key": item["track_key"],
@@ -501,7 +458,7 @@ async def recommend(request: RecommendRequest):
                 "album": item["album"],
                 "pos_count": item["pos_count"],
                 "similarity": item.get("similarity", 0),
-                "cover_image": cover_image_b64,
+                "cover_image_url": item.get("cover_image_url"),
             })
 
         print(f"✅ Returning {len(recommendations)} recommendations")
@@ -631,10 +588,10 @@ async def search_by_keyword(request: KeywordSearchRequest):
             print("⚠️ No tracks found in playlists")
             return {"results": []}
 
-        # 3. Supabase에서 트랙 메타데이터 가져오기 (cover_image 포함)
+        # 3. Supabase에서 트랙 메타데이터 가져오기
         response = (
             supabase.table("track_embeddings")
-            .select("track_key, title, artist, album, pos_count, cover_image")
+            .select("track_key, title, artist, album, pos_count, cover_image_url")
             .in_("track_key", track_ids)
             .execute()
         )
@@ -643,32 +600,12 @@ async def search_by_keyword(request: KeywordSearchRequest):
             print("⚠️ No track metadata found")
             return {"results": []}
 
-        # 4. 결과 포맷 변환 (원래 순서 유지, cover_image를 base64로 인코딩)
+        # 4. 결과 포맷 변환 (원래 순서 유지)
         track_data_map = {item["track_key"]: item for item in response.data}
         results = []
         for track_id in track_ids:
             if track_id in track_data_map:
                 item = track_data_map[track_id]
-
-                # cover_image를 base64로 인코딩
-                cover_image_b64 = None
-                if item.get("cover_image"):
-                    try:
-                        cover_data = item["cover_image"]
-                        if isinstance(cover_data, str):
-                            if cover_data.startswith('\\x'):
-                                # 16진수 문자열 형식: \x2f\x39\x6a... → 이미 base64 문자열임
-                                hex_string = ''.join(cover_data.split('\\x')[1:])
-                                cover_image_b64 = bytes.fromhex(hex_string).decode('utf-8')
-                            else:
-                                # 이미 base64 문자열이면 그대로 사용
-                                cover_image_b64 = cover_data
-                        elif isinstance(cover_data, bytes):
-                            # bytes면 base64 인코딩
-                            cover_image_b64 = base64.b64encode(cover_data).decode('utf-8')
-                    except Exception as e:
-                        print(f"⚠️ Failed to encode cover_image for {track_id}: {e}")
-
                 results.append(
                     {
                         "track_key": item["track_key"],
@@ -676,7 +613,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
                         "artist": item.get("artist"),
                         "album": item.get("album"),
                         "pos_count": item.get("pos_count"),
-                        "cover_image": cover_image_b64,
+                        "cover_image_url": item.get("cover_image_url"),
                     }
                 )
 
