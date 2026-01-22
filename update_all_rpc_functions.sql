@@ -8,7 +8,7 @@ returns table (playlist_id text, track_ids text[], similarity float)
 language sql
 as $$
   select
-    _id as playlist_id,
+    id::text as playlist_id,
     track_ids,
     1 - (embedding <=> query_embedding) as similarity
   from new_playlists
