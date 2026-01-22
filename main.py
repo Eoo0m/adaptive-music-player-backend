@@ -93,7 +93,7 @@ playlist_dim = 256  # 플레이리스트 임베딩 차원
 playlist_clip_model = CaptionPlaylistCLIP(
     caption_dim=title_dim, playlist_dim=playlist_dim, out_dim=512
 ).to(device)
-playlist_clip_model.load_state_dict(torch.load("clip_best.pt", map_location=device))
+playlist_clip_model.load_state_dict(torch.load("clip_u10_valid_tracks_best.pt", map_location=device))
 playlist_clip_model.eval()
 
 print(f"✅ Playlist CLIP model loaded on {device}")
@@ -195,7 +195,7 @@ def search_playlists_by_keyword(keyword: str, top_k: int = 50):
 
     # 3. Supabase에서 유사한 플레이리스트 검색
     response = supabase.rpc(
-        "match_playlist_embeddings",
+        "match_new_playlist_embeddings",
         {
             "query_embedding": projected_embedding,
             "match_count": top_k,
@@ -590,7 +590,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
 
         # 3. Supabase에서 트랙 메타데이터 가져오기
         response = (
-            supabase.table("track_embeddings")
+            supabase.table("new_track_embeddings")
             .select("track_key, title, artist, album, pos_count, cover_image_url")
             .in_("track_key", track_ids)
             .execute()
