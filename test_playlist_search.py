@@ -108,7 +108,7 @@ def search_playlists_with_timing(keyword: str, top_k: int = 50):
     # 3. Supabase 벡터 검색 (HNSW)
     t4 = time.time()
     response = supabase.rpc(
-        "match_new_playlist_embeddings",
+        "match_playlist_embeddings",
         {
             "query_embedding": projected_embedding,
             "match_count": top_k,
@@ -181,7 +181,7 @@ def run_benchmark(queries, iterations=3):
             # Supabase 검색 (측정 대상)
             t_db_start = time.time()
             response = supabase.rpc(
-                "match_new_playlist_embeddings",
+                "match_playlist_embeddings",
                 {
                     "query_embedding": projected_embedding,
                     "match_count": 50,

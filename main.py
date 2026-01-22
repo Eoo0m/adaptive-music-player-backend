@@ -195,7 +195,7 @@ def search_playlists_by_keyword(keyword: str, top_k: int = 50):
 
     # 3. Supabase에서 유사한 플레이리스트 검색
     response = supabase.rpc(
-        "match_new_playlist_embeddings",
+        "match_playlist_embeddings",
         {
             "query_embedding": projected_embedding,
             "match_count": top_k,
