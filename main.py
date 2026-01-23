@@ -578,7 +578,25 @@ async def search_by_keyword(request: KeywordSearchRequest):
 
         if not playlist_results:
             print("⚠️ No matching playlists found")
-            return {"results": []}
+            return {"results": [], "debug": {"playlists_found": 0}}
+
+        # 플레이리스트 디버그 정보 수집
+        playlist_debug = []
+        for pid, track_ids_list, similarity in playlist_results[:10]:  # 상위 10개만
+            # 플레이리스트 메타데이터 가져오기
+            playlist_info = supabase.table("new_playlists").select(
+                "playlist_id, playlist_title, saves"
+            ).eq("playlist_id", pid).execute()
+
+            if playlist_info.data:
+                info = playlist_info.data[0]
+                playlist_debug.append({
+                    "playlist_id": pid,
+                    "title": info.get("playlist_title", "Unknown"),
+                    "saves": info.get("saves", 0),
+                    "similarity": round(similarity, 4),
+                    "track_count": len(track_ids_list) if track_ids_list else 0
+                })
 
         # 2. 가중 빈도 기반 트랙 추천
         track_ids = recommend_tracks_by_weighted_frequency(playlist_results, top_k=10)
@@ -586,7 +604,13 @@ async def search_by_keyword(request: KeywordSearchRequest):
 
         if not track_ids:
             print("⚠️ No tracks found in playlists")
-            return {"results": []}
+            return {
+                "results": [],
+                "debug": {
+                    "playlists_found": len(playlist_results),
+                    "top_playlists": playlist_debug
+                }
+            }
 
         # 3. Supabase에서 트랙 메타데이터 가져오기
         response = (
@@ -598,7 +622,14 @@ async def search_by_keyword(request: KeywordSearchRequest):
 
         if not response.data:
             print("⚠️ No track metadata found")
-            return {"results": []}
+            return {
+                "results": [],
+                "debug": {
+                    "playlists_found": len(playlist_results),
+                    "top_playlists": playlist_debug,
+                    "recommended_track_ids": track_ids
+                }
+            }
 
         # 4. 결과 포맷 변환 (원래 순서 유지)
         track_data_map = {item["track_key"]: item for item in response.data}
@@ -618,7 +649,18 @@ async def search_by_keyword(request: KeywordSearchRequest):
                 )
 
         print(f"✅ Final selected: {len(results)} tracks")
-        return {"results": results}
+
+        # 디버그 정보 포함하여 반환
+        return {
+            "results": results,
+            "debug": {
+                "keyword": request.keyword,
+                "playlists_found": len(playlist_results),
+                "top_playlists": playlist_debug,
+                "tracks_recommended": len(track_ids),
+                "tracks_returned": len(results)
+            }
+        }
 
     except Exception as e:
         print(f"Keyword search error: {e}")
