@@ -13,9 +13,26 @@ from openai import OpenAI
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import logging
+from datetime import datetime
+
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # 콘솔 출력
+        logging.FileHandler('/tmp/adaptive-music-player.log')  # 파일 출력
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # 환경 변수 로드
 load_dotenv()
+
+# 앱 버전 (배포 확인용)
+APP_VERSION = datetime.now().strftime("%Y%m%d_%H%M%S")
+logger.info(f"🚀 Starting Adaptive Music Player Backend - Version: {APP_VERSION}")
 
 # Supabase 클라이언트
 supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
@@ -116,6 +133,27 @@ app.add_middleware(
     allow_headers=["*"],  # 모든 헤더 허용
     expose_headers=["*"],  # 모든 응답 헤더 노출
 )
+
+# Health check endpoint (배포 확인용)
+@app.get("/")
+async def root():
+    return {
+        "status": "ok",
+        "service": "Adaptive Music Player API",
+        "version": APP_VERSION,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "version": APP_VERSION,
+        "models_loaded": {
+            "playlist_clip": playlist_clip_model is not None,
+            "title_track_clip": title_track_clip_model is not None
+        }
+    }
 
 
 # Pydantic 모델
@@ -570,19 +608,23 @@ async def search_by_keyword(request: KeywordSearchRequest):
         raise HTTPException(status_code=400, detail="Missing keyword")
 
     try:
-        print(f"🔍 Keyword search: '{request.keyword}'")
+        logger.info(f"🔍 Keyword search request: '{request.keyword}' (top_k={request.top_k})")
 
         # 1. 플레이리스트 검색 (상위 50개)
         playlist_results = search_playlists_by_keyword(request.keyword, top_k=50)
-        print(f"📊 Found {len(playlist_results)} matching playlists")
+        logger.info(f"📊 Found {len(playlist_results)} matching playlists")
 
         if not playlist_results:
-            print("⚠️ No matching playlists found")
+            logger.warning("⚠️ No matching playlists found")
             return {"results": [], "debug": {"playlists_found": 0}}
 
         # 플레이리스트 디버그 정보 수집
         playlist_debug = []
-        for pid, track_ids_list, similarity in playlist_results[:10]:  # 상위 10개만
+        logger.info("=" * 80)
+        logger.info(f"📋 Top 10 Playlists for keyword: '{request.keyword}'")
+        logger.info("=" * 80)
+
+        for idx, (pid, track_ids_list, similarity) in enumerate(playlist_results[:10], 1):
             # 플레이리스트 메타데이터 가져오기
             playlist_info = supabase.table("new_playlists").select(
                 "playlist_id, playlist_title, saves"
@@ -590,20 +632,30 @@ async def search_by_keyword(request: KeywordSearchRequest):
 
             if playlist_info.data:
                 info = playlist_info.data[0]
+                title = info.get("playlist_title", "Unknown")
+                saves = info.get("saves", 0)
+                track_count = len(track_ids_list) if track_ids_list else 0
+
                 playlist_debug.append({
                     "playlist_id": pid,
-                    "title": info.get("playlist_title", "Unknown"),
-                    "saves": info.get("saves", 0),
+                    "title": title,
+                    "saves": saves,
                     "similarity": round(similarity, 4),
-                    "track_count": len(track_ids_list) if track_ids_list else 0
+                    "track_count": track_count
                 })
 
+                # 콘솔에 상세 정보 출력
+                logger.info(f"#{idx:2d} | {title[:50]:50s} | 유사도: {similarity:.4f} | 저장: {saves:6d} | 트랙: {track_count:3d}")
+
+        logger.info("=" * 80)
+
         # 2. 가중 빈도 기반 트랙 추천
+        logger.info(f"\n🎵 Calculating weighted track recommendations...")
         track_ids = recommend_tracks_by_weighted_frequency(playlist_results, top_k=10)
-        print(f"🎵 Recommended {len(track_ids)} tracks")
+        logger.info(f"✅ Recommended {len(track_ids)} tracks")
 
         if not track_ids:
-            print("⚠️ No tracks found in playlists")
+            logger.warning("⚠️ No tracks found in playlists")
             return {
                 "results": [],
                 "debug": {
@@ -634,7 +686,11 @@ async def search_by_keyword(request: KeywordSearchRequest):
         # 4. 결과 포맷 변환 (원래 순서 유지)
         track_data_map = {item["track_key"]: item for item in response.data}
         results = []
-        for track_id in track_ids:
+
+        logger.info("\n🎼 Final Track Recommendations:")
+        logger.info("-" * 80)
+
+        for rank, track_id in enumerate(track_ids, 1):
             if track_id in track_data_map:
                 item = track_data_map[track_id]
                 results.append(
@@ -648,7 +704,13 @@ async def search_by_keyword(request: KeywordSearchRequest):
                     }
                 )
 
-        print(f"✅ Final selected: {len(results)} tracks")
+                # 각 트랙 정보 출력
+                title = item.get("title", "Unknown")[:40]
+                artist = item.get("artist", "Unknown")[:30]
+                logger.info(f"#{rank:2d} | {title:40s} - {artist:30s}")
+
+        logger.info("-" * 80)
+        logger.info(f"✅ Final selected: {len(results)} tracks\n")
 
         # 디버그 정보 포함하여 반환
         return {
