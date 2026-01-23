@@ -5,8 +5,8 @@
 
 set -e  # 에러 발생시 중단
 
-SERVICE_NAME="adaptive-music-player"  # 실제 서비스 이름으로 변경하세요
-APP_DIR="/path/to/adaptive-music-player-backend"  # 실제 경로로 변경하세요
+SERVICE_NAME="dynplayer"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # 스크립트가 있는 디렉토리
 
 echo "🚀 Starting deployment..."
 

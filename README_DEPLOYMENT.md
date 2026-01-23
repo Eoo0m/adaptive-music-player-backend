@@ -6,16 +6,16 @@
 
 ```bash
 # 서비스 중지
-sudo systemctl stop adaptive-music-player
+sudo systemctl stop dynplayer
 
 # 서비스 파일 변경사항 반영 (중요!)
 sudo systemctl daemon-reload
 
 # 서비스 시작
-sudo systemctl start adaptive-music-player
+sudo systemctl start dynplayer
 
 # 상태 확인
-sudo systemctl status adaptive-music-player
+sudo systemctl status dynplayer
 ```
 
 ### 2️⃣ Python 캐시 삭제
@@ -32,7 +32,7 @@ find . -type d -name __pycache__ -exec rm -rf {} +
 find . -name "*.pyc" -delete
 
 # 그 다음 서비스 재시작
-sudo systemctl restart adaptive-music-player
+sudo systemctl restart dynplayer
 ```
 
 ### 3️⃣ 로그 확인 방법
@@ -40,7 +40,7 @@ sudo systemctl restart adaptive-music-player
 #### A. 실시간 로그 모니터링
 ```bash
 # systemd 로그 (실시간)
-sudo journalctl -u adaptive-music-player -f
+sudo journalctl -u dynplayer -f
 
 # 애플리케이션 로그 (실시간)
 tail -f /tmp/adaptive-music-player.log
@@ -49,15 +49,15 @@ tail -f /tmp/adaptive-music-player.log
 #### B. 최근 로그 확인
 ```bash
 # 최근 50줄
-sudo journalctl -u adaptive-music-player -n 50
+sudo journalctl -u dynplayer -n 50
 
 # 특정 시간 이후 로그
-sudo journalctl -u adaptive-music-player --since "10 minutes ago"
+sudo journalctl -u dynplayer --since "10 minutes ago"
 ```
 
 #### C. 에러만 필터링
 ```bash
-sudo journalctl -u adaptive-music-player -p err
+sudo journalctl -u dynplayer -p err
 ```
 
 ### 4️⃣ 배포 확인 방법
@@ -107,18 +107,18 @@ chmod +x deploy.sh
 또는 한 줄로:
 
 ```bash
-git pull && find . -type d -name __pycache__ -exec rm -rf {} + && sudo systemctl restart adaptive-music-player && sudo systemctl status adaptive-music-player
+git pull && find . -type d -name __pycache__ -exec rm -rf {} + && sudo systemctl restart dynplayer && sudo systemctl status dynplayer
 ```
 
 ---
 
 ## 🔧 Systemd 서비스 파일 예제
 
-### `/etc/systemd/system/adaptive-music-player.service`
+### `/etc/systemd/system/dynplayer.service`
 
 ```ini
 [Unit]
-Description=Adaptive Music Player Backend API
+Description=Dynplayer Backend API
 After=network.target
 
 [Service]
@@ -134,7 +134,7 @@ RestartSec=10
 # 로그 설정
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=adaptive-music-player
+SyslogIdentifier=dynplayer
 
 [Install]
 WantedBy=multi-user.target
@@ -144,15 +144,15 @@ WantedBy=multi-user.target
 
 ```bash
 # 서비스 파일 복사
-sudo cp adaptive-music-player.service /etc/systemd/system/
+sudo cp dynplayer.service /etc/systemd/system/
 
 # 서비스 활성화
 sudo systemctl daemon-reload
-sudo systemctl enable adaptive-music-player
-sudo systemctl start adaptive-music-player
+sudo systemctl enable dynplayer
+sudo systemctl start dynplayer
 
 # 상태 확인
-sudo systemctl status adaptive-music-player
+sudo systemctl status dynplayer
 ```
 
 ---
@@ -254,7 +254,7 @@ sudo lsof -i :8000
 sudo kill -9 <PID>
 
 # 또는 서비스 재시작
-sudo systemctl restart adaptive-music-player
+sudo systemctl restart dynplayer
 ```
 
 ### 환경변수가 로드 안됨
