@@ -648,9 +648,9 @@ async def search_by_keyword(request: KeywordSearchRequest):
 
         # 플레이리스트 디버그 정보 수집
         playlist_debug = []
-        logger.info("=" * 80)
-        logger.info(f"📋 Top 10 Playlists for keyword: '{request.keyword}'")
-        logger.info("=" * 80)
+        print("=" * 80, flush=True)
+        print(f"📋 Top 10 Playlists for keyword: '{request.keyword}'", flush=True)
+        print("=" * 80, flush=True)
 
         for idx, (pid, track_ids_list, similarity) in enumerate(playlist_results[:10], 1):
             # 플레이리스트 메타데이터 가져오기
@@ -673,14 +673,14 @@ async def search_by_keyword(request: KeywordSearchRequest):
                 })
 
                 # 콘솔에 상세 정보 출력
-                logger.info(f"#{idx:2d} | {title[:50]:50s} | 유사도: {similarity:.4f} | 저장: {saves:6d} | 트랙: {track_count:3d}")
+                print(f"#{idx:2d} | {title[:50]:50s} | 유사도: {similarity:.4f} | 저장: {saves:6d} | 트랙: {track_count:3d}", flush=True)
 
-        logger.info("=" * 80)
+        print("=" * 80, flush=True)
 
         # 2. 가중 빈도 기반 트랙 추천
-        logger.info(f"\n🎵 Calculating weighted track recommendations...")
+        print(f"\n🎵 Calculating weighted track recommendations...", flush=True)
         track_ids = recommend_tracks_by_weighted_frequency(playlist_results, top_k=10)
-        logger.info(f"✅ Recommended {len(track_ids)} tracks")
+        print(f"✅ Recommended {len(track_ids)} tracks", flush=True)
 
         if not track_ids:
             logger.warning("⚠️ No tracks found in playlists")
@@ -715,8 +715,8 @@ async def search_by_keyword(request: KeywordSearchRequest):
         track_data_map = {item["track_key"]: item for item in response.data}
         results = []
 
-        logger.info("\n🎼 Final Track Recommendations:")
-        logger.info("-" * 80)
+        print("\n🎼 Final Track Recommendations:", flush=True)
+        print("-" * 80, flush=True)
 
         for rank, track_id in enumerate(track_ids, 1):
             if track_id in track_data_map:
@@ -735,10 +735,10 @@ async def search_by_keyword(request: KeywordSearchRequest):
                 # 각 트랙 정보 출력
                 title = item.get("title", "Unknown")[:40]
                 artist = item.get("artist", "Unknown")[:30]
-                logger.info(f"#{rank:2d} | {title:40s} - {artist:30s}")
+                print(f"#{rank:2d} | {title:40s} - {artist:30s}", flush=True)
 
-        logger.info("-" * 80)
-        logger.info(f"✅ Final selected: {len(results)} tracks\n")
+        print("-" * 80, flush=True)
+        print(f"✅ Final selected: {len(results)} tracks\n", flush=True)
 
         # 디버그 정보 포함하여 반환
         return {
