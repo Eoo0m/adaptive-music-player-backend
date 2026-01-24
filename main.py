@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import logging
+import sys
 from datetime import datetime
 
 # 로깅 설정
@@ -21,11 +22,16 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),  # 콘솔 출력
-        logging.FileHandler('/tmp/adaptive-music-player.log')  # 파일 출력
-    ]
+        logging.StreamHandler(sys.stdout),  # stdout으로 출력 (systemd가 캡처)
+        logging.FileHandler('/opt/dynplayer-backend/app.log')  # 파일 출력
+    ],
+    force=True  # 기존 설정 덮어쓰기
 )
 logger = logging.getLogger(__name__)
+
+# uvicorn 로거도 같은 레벨로 설정
+logging.getLogger("uvicorn").setLevel(logging.INFO)
+logging.getLogger("uvicorn.access").setLevel(logging.INFO)
 
 # 환경 변수 로드
 load_dotenv()
