@@ -1,8 +1,9 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
+import time
 import os
 import base64
 import secrets
@@ -17,21 +18,25 @@ import logging
 import sys
 from datetime import datetime
 
-# 로깅 설정
+# 로깅 설정 - 매우 간단하게, stdout만 사용
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # DEBUG로 변경하여 모든 로그 출력
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),  # stdout으로 출력 (systemd가 캡처)
-        logging.FileHandler('/opt/dynplayer-backend/app.log')  # 파일 출력
-    ],
-    force=True  # 기존 설정 덮어쓰기
+    stream=sys.stdout,  # stdout으로만 출력
+    force=True
 )
 logger = logging.getLogger(__name__)
 
-# uvicorn 로거도 같은 레벨로 설정
-logging.getLogger("uvicorn").setLevel(logging.INFO)
-logging.getLogger("uvicorn.access").setLevel(logging.INFO)
+# 모든 로거를 DEBUG 레벨로 설정
+logging.getLogger("uvicorn").setLevel(logging.DEBUG)
+logging.getLogger("uvicorn.access").setLevel(logging.DEBUG)
+logging.getLogger("uvicorn.error").setLevel(logging.DEBUG)
+
+# 시작 시 강제로 출력
+print("=" * 80, flush=True)
+print("🚀 DYNPLAYER BACKEND STARTING UP", flush=True)
+print("=" * 80, flush=True)
+sys.stdout.flush()
 
 # 환경 변수 로드
 load_dotenv()
@@ -119,10 +124,28 @@ playlist_clip_model = CaptionPlaylistCLIP(
 playlist_clip_model.load_state_dict(torch.load("clip_u10_valid_tracks_best.pt", map_location=device))
 playlist_clip_model.eval()
 
-print(f"✅ Playlist CLIP model loaded on {device}")
+logger.info(f"✅ Playlist CLIP model loaded on {device}")
 
 # FastAPI 앱 생성
 app = FastAPI(title="Dynplayer API")
+
+# 요청 로깅 미들웨어
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+
+    # 요청 정보 로깅
+    logger.info(f"➡️  {request.method} {request.url.path}")
+    logger.info(f"    Client: {request.client.host if request.client else 'unknown'}")
+
+    # 요청 처리
+    response = await call_next(request)
+
+    # 응답 시간 계산
+    process_time = time.time() - start_time
+    logger.info(f"⬅️  {request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.3f}s")
+
+    return response
 
 # CORS 설정
 app.add_middleware(
