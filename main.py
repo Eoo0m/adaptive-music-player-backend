@@ -638,8 +638,8 @@ async def search_by_keyword(request: KeywordSearchRequest):
     try:
         logger.info(f"🔍 Keyword search request: '{request.keyword}' (top_k={request.top_k})")
 
-        # 1. 플레이리스트 검색 (상위 50개)
-        playlist_results = search_playlists_by_keyword(request.keyword, top_k=50)
+        # 1. 플레이리스트 검색 (상위 100개)
+        playlist_results = search_playlists_by_keyword(request.keyword, top_k=100)
         logger.info(f"📊 Found {len(playlist_results)} matching playlists")
 
         if not playlist_results:
@@ -648,9 +648,10 @@ async def search_by_keyword(request: KeywordSearchRequest):
 
         # 플레이리스트 디버그 정보 수집
         playlist_debug = []
-        print("=" * 80, flush=True)
-        print(f"📋 Top 10 Playlists for keyword: '{request.keyword}'", flush=True)
-        print("=" * 80, flush=True)
+        sys.stderr.write("=" * 80 + "\n")
+        sys.stderr.write(f"📋 Top 10 Playlists for keyword: '{request.keyword}'\n")
+        sys.stderr.write("=" * 80 + "\n")
+        sys.stderr.flush()
 
         for idx, (pid, track_ids_list, similarity) in enumerate(playlist_results[:10], 1):
             # 플레이리스트 메타데이터 가져오기
@@ -673,14 +674,18 @@ async def search_by_keyword(request: KeywordSearchRequest):
                 })
 
                 # 콘솔에 상세 정보 출력
-                print(f"#{idx:2d} | {title[:50]:50s} | 유사도: {similarity:.4f} | 저장: {saves:6d} | 트랙: {track_count:3d}", flush=True)
+                sys.stderr.write(f"#{idx:2d} | {title[:50]:50s} | 유사도: {similarity:.4f} | 저장: {saves:6d} | 트랙: {track_count:3d}\n")
+                sys.stderr.flush()
 
-        print("=" * 80, flush=True)
+        sys.stderr.write("=" * 80 + "\n")
+        sys.stderr.flush()
 
         # 2. 가중 빈도 기반 트랙 추천
-        print(f"\n🎵 Calculating weighted track recommendations...", flush=True)
+        sys.stderr.write(f"\n🎵 Calculating weighted track recommendations...\n")
+        sys.stderr.flush()
         track_ids = recommend_tracks_by_weighted_frequency(playlist_results, top_k=10)
-        print(f"✅ Recommended {len(track_ids)} tracks", flush=True)
+        sys.stderr.write(f"✅ Recommended {len(track_ids)} tracks\n")
+        sys.stderr.flush()
 
         if not track_ids:
             logger.warning("⚠️ No tracks found in playlists")
