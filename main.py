@@ -179,8 +179,7 @@ async def health_check():
         "status": "healthy",
         "version": APP_VERSION,
         "models_loaded": {
-            "playlist_clip": playlist_clip_model is not None,
-            "title_track_clip": title_track_clip_model is not None
+            "playlist_clip": playlist_clip_model is not None
         }
     }
 
