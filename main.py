@@ -17,6 +17,8 @@ import torch.nn.functional as F
 import logging
 import sys
 from datetime import datetime
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from openai import APIError, APIConnectionError, RateLimitError, Timeout
 
 # 로깅 설정 - 매우 간단하게, stdout만 사용
 logging.basicConfig(
@@ -233,6 +235,60 @@ def generate_random_string(length: int = 16) -> str:
     return secrets.token_urlsafe(length)[:length]
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((APIError, APIConnectionError, RateLimitError, Timeout)),
+    reraise=True
+)
+def get_openai_embedding_with_retry(keyword: str):
+    """
+    OpenAI 임베딩 생성 (재시도 로직 포함)
+
+    Args:
+        keyword: 검색 키워드
+
+    Returns:
+        embedding vector
+    """
+    logger.info(f"🔄 Calling OpenAI API for keyword: '{keyword}'")
+    embedding_response = openai_client.embeddings.create(
+        model="text-embedding-3-large",
+        input=[keyword],
+        timeout=30.0
+    )
+    logger.info(f"✅ OpenAI API response received")
+    return embedding_response.data[0].embedding
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=5),
+    reraise=True
+)
+def search_supabase_playlists_with_retry(projected_embedding: list, top_k: int):
+    """
+    Supabase 벡터 검색 (재시도 로직 포함)
+
+    Args:
+        projected_embedding: 프로젝션된 임베딩 벡터
+        top_k: 반환할 상위 플레이리스트 개수
+
+    Returns:
+        Supabase response data
+    """
+    logger.info(f"🔄 Calling Supabase RPC for vector search (top_k={top_k})")
+    response = supabase.rpc(
+        "match_playlist_embeddings",
+        {
+            "query_embedding": projected_embedding,
+            "match_count": top_k,
+        },
+    ).execute()
+    logger.info(f"✅ Supabase RPC response received")
+    return response
+
+
 def search_playlists_by_keyword(keyword: str, top_k: int = 50):
     """
     키워드로 플레이리스트 검색 (Supabase 벡터 검색 사용)
@@ -244,39 +300,41 @@ def search_playlists_by_keyword(keyword: str, top_k: int = 50):
     Returns:
         list of (playlist_id, track_ids, similarity_score) tuples
     """
-    # 1. OpenAI 임베딩
-    embedding_response = openai_client.embeddings.create(
-        model="text-embedding-3-large", input=[keyword]
-    )
-    keyword_embedding = embedding_response.data[0].embedding
+    try:
+        # 1. OpenAI 임베딩 (재시도 로직 포함)
+        keyword_embedding = get_openai_embedding_with_retry(keyword)
 
-    # 2. CLIP caption projection (텍스트만 프로젝션)
-    keyword_tensor = (
-        torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
-    )
+        # 2. CLIP caption projection (텍스트만 프로젝션)
+        keyword_tensor = (
+            torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
+        )
 
-    with torch.no_grad():
-        projected_query = playlist_clip_model.caption_proj(keyword_tensor)  # (1, 512)
-        projected_embedding = projected_query.cpu().numpy()[0].tolist()
+        with torch.no_grad():
+            projected_query = playlist_clip_model.caption_proj(keyword_tensor)  # (1, 512)
+            projected_embedding = projected_query.cpu().numpy()[0].tolist()
 
-    # 3. Supabase에서 유사한 플레이리스트 검색
-    response = supabase.rpc(
-        "match_playlist_embeddings",
-        {
-            "query_embedding": projected_embedding,
-            "match_count": top_k,
-        },
-    ).execute()
+        # 3. Supabase에서 유사한 플레이리스트 검색 (재시도 로직 포함)
+        response = search_supabase_playlists_with_retry(projected_embedding, top_k)
 
-    if not response.data:
-        return []
+        if not response.data:
+            return []
 
-    # 4. 결과 반환 (playlist_id, track_ids, similarity)
-    results = []
-    for item in response.data:
-        results.append((item["playlist_id"], item["track_ids"], item["similarity"]))
+        # 4. 결과 반환 (playlist_id, track_ids, similarity)
+        results = []
+        for item in response.data:
+            results.append((item["playlist_id"], item["track_ids"], item["similarity"]))
 
-    return results
+        return results
+
+    except (APIError, APIConnectionError, RateLimitError, Timeout) as e:
+        logger.error(f"❌ OpenAI API error after retries: {str(e)}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"검색 서비스가 일시적으로 사용 불가합니다. 잠시 후 다시 시도해주세요."
+        )
+    except Exception as e:
+        logger.error(f"❌ Unexpected error in search_playlists_by_keyword: {str(e)}")
+        raise
 
 
 def recommend_tracks_by_weighted_frequency(playlist_results, top_k: int = 10):
