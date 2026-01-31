@@ -20,19 +20,22 @@ from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from openai import APIError, APIConnectionError, RateLimitError, Timeout
 
-# 로깅 설정 - 매우 간단하게, stdout만 사용
+# 로깅 설정
 logging.basicConfig(
-    level=logging.DEBUG,  # DEBUG로 변경하여 모든 로그 출력
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    stream=sys.stdout,  # stdout으로만 출력
+    stream=sys.stdout,
     force=True
 )
 logger = logging.getLogger(__name__)
 
-# 모든 로거를 DEBUG 레벨로 설정
-logging.getLogger("uvicorn").setLevel(logging.DEBUG)
-logging.getLogger("uvicorn.access").setLevel(logging.DEBUG)
-logging.getLogger("uvicorn.error").setLevel(logging.DEBUG)
+# 외부 라이브러리 로그 레벨 조정
+logging.getLogger("uvicorn").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("hpack").setLevel(logging.WARNING)
 
 # 시작 시 강제로 출력
 print("=" * 80, flush=True)
