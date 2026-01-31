@@ -135,17 +135,10 @@ app = FastAPI(title="Dynplayer API")
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.time()
-
-    # 요청 정보 로깅
-    logger.info(f"➡️  {request.method} {request.url.path}")
-    logger.info(f"    Client: {request.client.host if request.client else 'unknown'}")
-
-    # 요청 처리
     response = await call_next(request)
-
-    # 응답 시간 계산
     process_time = time.time() - start_time
-    logger.info(f"⬅️  {request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.3f}s")
+
+    logger.debug(f"{request.method} {request.url.path} - {response.status_code} - {process_time:.2f}s")
 
     return response
 
@@ -466,7 +459,7 @@ async def callback(code: Optional[str] = None):
             return RedirectResponse(url="/#error=invalid_token")
 
     except Exception as e:
-        print(f"OAuth token error: {e}")
+        logger.error(f"OAuth token error: {str(e)}")
         return RedirectResponse(url="/#error=server_error")
 
 
@@ -497,7 +490,7 @@ async def refresh_token(request: RefreshTokenRequest):
             return response.json()
 
     except Exception as e:
-        print(f"Refresh token error: {e}")
+        logger.error(f"Refresh token error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to refresh token")
 
 
@@ -511,8 +504,6 @@ async def search_songs(request: SearchRequest):
         raise HTTPException(status_code=400, detail="Missing query")
 
     try:
-        print(f"🔍 Search query: {request.query}")
-
         response = supabase.rpc(
             "search_tracks_by_title", {"query_text": request.query, "match_count": 10}
         ).execute()
@@ -534,14 +525,11 @@ async def search_songs(request: SearchRequest):
                 "cover_image_url": item.get("cover_image_url"),
             })
 
-        print(f"✅ Found {len(results)} tracks")
+        logger.info(f"Search: found {len(results)} tracks for '{request.query}'")
         return {"results": results}
 
     except Exception as e:
-        print(f"❌ Search error: {e}")
-        import traceback
-
-        traceback.print_exc()
+        logger.error(f"Search error: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Search service unavailable: {str(e)}"
         )
@@ -554,8 +542,6 @@ async def recommend(request: RecommendRequest):
         raise HTTPException(status_code=400, detail="Missing track_key")
 
     try:
-        print(f"🎵 Recommend request for track_key: {request.track_key}")
-
         response = supabase.rpc(
             "match_tracks_by_key",
             {
@@ -563,10 +549,6 @@ async def recommend(request: RecommendRequest):
                 "match_count": request.num_recommendations,
             },
         ).execute()
-
-        print(
-            f"📊 Supabase response: {response.data is not None}, count: {len(response.data) if response.data else 0}"
-        )
 
         if response.data is None:
             raise HTTPException(status_code=500, detail="Recommendation failed")
@@ -585,7 +567,7 @@ async def recommend(request: RecommendRequest):
                 "cover_image_url": item.get("cover_image_url"),
             })
 
-        print(f"✅ Returning {len(recommendations)} recommendations")
+        logger.info(f"Recommend: {len(recommendations)} tracks for '{request.track_key}'")
 
         return {
             "recommendations": recommendations,
@@ -593,10 +575,7 @@ async def recommend(request: RecommendRequest):
         }
 
     except Exception as e:
-        print(f"❌ Recommend error: {e}")
-        import traceback
-
-        traceback.print_exc()
+        logger.error(f"Recommend error: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Recommendation service unavailable: {str(e)}"
         )
@@ -609,35 +588,19 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
         raise HTTPException(status_code=400, detail="Missing access token or tracks")
 
     try:
-        print(f"🔍 Finding Spotify tracks for {len(request.tracks)} recommendations")
-        print(
-            f"📋 First track sample: {request.tracks[0] if request.tracks else 'empty'}"
-        )
-
         out = []
-        # 빈 리스트 체크
         if len(request.tracks) == 0:
-            print("⚠️ No tracks to search")
             return {"spotify_tracks": []}
 
         # 유사도 순서 유지 (상위 10개만)
         top_tracks = request.tracks[:10]
 
-        print("📋 Top 10 tracks to search (in similarity order):")
-        for i, track in enumerate(top_tracks):
-            track_name = track.get("track") or track.get("track_name")
-            artist_name = track.get("artist") or track.get("artist_name")
-            similarity = track.get("similarity", "N/A")
-            print(f"  {i+1}. {track_name} - {artist_name} (similarity: {similarity})")
-
         async with httpx.AsyncClient() as client:
-            for idx, track in enumerate(top_tracks):
-                # track 필드 확인 및 안전하게 접근
+            for track in top_tracks:
                 track_name = track.get("track") or track.get("track_name")
                 artist_name = track.get("artist") or track.get("artist_name")
 
                 if not track_name or not artist_name:
-                    print(f"⚠️ Missing track or artist info: {track}")
                     continue
 
                 q = f'track:"{track_name}" artist:"{artist_name}"'
@@ -651,28 +614,18 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
                     items = data.get("tracks", {}).get("items", [])
                     if items and len(items) > 0:
                         item = items[0]
-                        print(f"  ✅ [{idx+1}] Matched: {item['name']} - {item['artists'][0]['name']}")
-                        out.append(
-                            {
-                                **track,
-                                "spotify_track": item,
-                                "uri": item["uri"],
-                                "preview_url": item.get("preview_url"),
-                            }
-                        )
-                else:
-                    print(
-                        f"⚠️ Spotify search failed for {track_name}: {response.status_code}"
-                    )
+                        out.append({
+                            **track,
+                            "spotify_track": item,
+                            "uri": item["uri"],
+                            "preview_url": item.get("preview_url"),
+                        })
 
-        print(f"✅ Found {len(out)} Spotify tracks")
+        logger.info(f"Find Spotify tracks: {len(out)}/{len(top_tracks)} matched")
         return {"spotify_tracks": out}
 
     except Exception as e:
-        print(f"❌ find-spotify-tracks error: {e}")
-        import traceback
-
-        traceback.print_exc()
+        logger.error(f"Find Spotify tracks error: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Failed to find Spotify tracks: {str(e)}"
         )
@@ -694,68 +647,21 @@ async def search_by_keyword(request: KeywordSearchRequest):
         raise HTTPException(status_code=400, detail="Missing keyword")
 
     try:
-        logger.info(f"🔍 Keyword search request: '{request.keyword}' (top_k={request.top_k})")
+        logger.info(f"Keyword search: '{request.keyword}'")
 
-        # 1. 플레이리스트 검색 (상위 100개)
+        # 1. 플레이리스트 검색
         playlist_results = search_playlists_by_keyword(request.keyword, top_k=100)
-        logger.info(f"📊 Found {len(playlist_results)} matching playlists")
 
         if not playlist_results:
-            logger.warning("⚠️ No matching playlists found")
-            return {"results": [], "debug": {"playlists_found": 0}}
+            return {"results": []}
 
-        # 플레이리스트 디버그 정보 수집
-        playlist_debug = []
-        sys.stderr.write("=" * 80 + "\n")
-        sys.stderr.write(f"📋 Top 10 Playlists for keyword: '{request.keyword}'\n")
-        sys.stderr.write("=" * 80 + "\n")
-        sys.stderr.flush()
-
-        for idx, (pid, track_ids_list, similarity) in enumerate(playlist_results[:10], 1):
-            # 플레이리스트 메타데이터 가져오기
-            playlist_info = supabase.table("new_playlists").select(
-                "playlist_id, playlist_title, saves"
-            ).eq("playlist_id", pid).execute()
-
-            if playlist_info.data:
-                info = playlist_info.data[0]
-                title = info.get("playlist_title", "Unknown")
-                saves = info.get("saves", 0)
-                track_count = len(track_ids_list) if track_ids_list else 0
-
-                playlist_debug.append({
-                    "playlist_id": pid,
-                    "title": title,
-                    "saves": saves,
-                    "similarity": round(similarity, 4),
-                    "track_count": track_count
-                })
-
-                # 콘솔에 상세 정보 출력
-                sys.stderr.write(f"#{idx:2d} | {title[:50]:50s} | 유사도: {similarity:.4f} | 저장: {saves:6d} | 트랙: {track_count:3d}\n")
-                sys.stderr.flush()
-
-        sys.stderr.write("=" * 80 + "\n")
-        sys.stderr.flush()
-
-        # 2. 가중 빈도 기반 트랙 추천
-        sys.stderr.write(f"\n🎵 Calculating weighted track recommendations...\n")
-        sys.stderr.flush()
+        # 2. 트랙 추천
         track_ids = recommend_tracks_by_weighted_frequency(playlist_results, top_k=10)
-        sys.stderr.write(f"✅ Recommended {len(track_ids)} tracks\n")
-        sys.stderr.flush()
 
         if not track_ids:
-            logger.warning("⚠️ No tracks found in playlists")
-            return {
-                "results": [],
-                "debug": {
-                    "playlists_found": len(playlist_results),
-                    "top_playlists": playlist_debug
-                }
-            }
+            return {"results": []}
 
-        # 3. Supabase에서 트랙 메타데이터 가져오기
+        # 3. 트랙 메타데이터 가져오기
         response = (
             supabase.table("new_track_embeddings")
             .select("track_key, title, artist, album, pos_count, cover_image_url")
@@ -764,62 +670,29 @@ async def search_by_keyword(request: KeywordSearchRequest):
         )
 
         if not response.data:
-            print("⚠️ No track metadata found")
-            return {
-                "results": [],
-                "debug": {
-                    "playlists_found": len(playlist_results),
-                    "top_playlists": playlist_debug,
-                    "recommended_track_ids": track_ids
-                }
-            }
+            return {"results": []}
 
-        # 4. 결과 포맷 변환 (원래 순서 유지)
+        # 4. 결과 포맷 변환
         track_data_map = {item["track_key"]: item for item in response.data}
         results = []
 
-        print("\n🎼 Final Track Recommendations:", flush=True)
-        print("-" * 80, flush=True)
-
-        for rank, track_id in enumerate(track_ids, 1):
+        for track_id in track_ids:
             if track_id in track_data_map:
                 item = track_data_map[track_id]
-                results.append(
-                    {
-                        "track_key": item["track_key"],
-                        "track_name": item.get("title"),
-                        "artist": item.get("artist"),
-                        "album": item.get("album"),
-                        "pos_count": item.get("pos_count"),
-                        "cover_image_url": item.get("cover_image_url"),
-                    }
-                )
+                results.append({
+                    "track_key": item["track_key"],
+                    "track_name": item.get("title"),
+                    "artist": item.get("artist"),
+                    "album": item.get("album"),
+                    "pos_count": item.get("pos_count"),
+                    "cover_image_url": item.get("cover_image_url"),
+                })
 
-                # 각 트랙 정보 출력
-                title = item.get("title", "Unknown")[:40]
-                artist = item.get("artist", "Unknown")[:30]
-                print(f"#{rank:2d} | {title:40s} - {artist:30s}", flush=True)
-
-        print("-" * 80, flush=True)
-        print(f"✅ Final selected: {len(results)} tracks\n", flush=True)
-
-        # 디버그 정보 포함하여 반환
-        return {
-            "results": results,
-            "debug": {
-                "keyword": request.keyword,
-                "playlists_found": len(playlist_results),
-                "top_playlists": playlist_debug,
-                "tracks_recommended": len(track_ids),
-                "tracks_returned": len(results)
-            }
-        }
+        logger.info(f"Keyword search completed: {len(results)} tracks returned")
+        return {"results": results}
 
     except Exception as e:
-        print(f"Keyword search error: {e}")
-        import traceback
-
-        traceback.print_exc()
+        logger.error(f"Keyword search failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Keyword search failed: {str(e)}")
 
 
@@ -861,7 +734,7 @@ async def log_listening(request: ListeningLogRequest):
         return {"success": True, "data": response.data}
 
     except Exception as e:
-        print(f"log-listening error: {e}")
+        logger.error(f"Log listening error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
