@@ -294,6 +294,38 @@ def search_supabase_playlists_with_retry(projected_embedding: list, top_k: int):
     return response
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    reraise=True
+)
+def search_tracks_by_keyword_fast_with_retry(query_embedding: list, playlist_count: int = 100, track_count: int = 10):
+    """
+    키워드 기반 트랙 검색 RPC (재시도 로직 포함)
+
+    Args:
+        query_embedding: 프로젝션된 쿼리 임베딩
+        playlist_count: 검색할 플레이리스트 개수
+        track_count: 반환할 트랙 개수
+
+    Returns:
+        Supabase response data
+    """
+    logger.info(f"🔄 Calling Supabase RPC: search_tracks_by_keyword_fast")
+    start_time = time.time()
+    response = supabase.rpc(
+        "search_tracks_by_keyword_fast",
+        {
+            "query_embedding": query_embedding,
+            "playlist_count": playlist_count,
+            "track_count": track_count
+        }
+    ).execute()
+    elapsed = time.time() - start_time
+    logger.info(f"✅ search_tracks_by_keyword_fast completed ({elapsed:.2f}s)")
+    return response
+
+
 def search_playlists_by_keyword(keyword: str, top_k: int = 50):
     """
     키워드로 플레이리스트 검색 (Supabase 벡터 검색 사용)
@@ -667,14 +699,11 @@ async def search_by_keyword(request: KeywordSearchRequest):
         # 3. DB에서 한 번에 처리 (플레이리스트 검색 + 트랙 가중합 + 메타데이터 조회)
         t_db = time.time()
         try:
-            response = supabase.rpc(
-                "search_tracks_by_keyword_fast",
-                {
-                    "query_embedding": projected_embedding,
-                    "playlist_count": 100,
-                    "track_count": 10
-                }
-            ).execute()
+            response = search_tracks_by_keyword_fast_with_retry(
+                query_embedding=projected_embedding,
+                playlist_count=100,
+                track_count=10
+            )
             logger.info(f"DB processing took {time.time() - t_db:.2f}s")
 
             if not response.data:
