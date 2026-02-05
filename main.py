@@ -666,34 +666,76 @@ async def search_by_keyword(request: KeywordSearchRequest):
 
         # 3. DB에서 한 번에 처리 (플레이리스트 검색 + 트랙 가중합 + 메타데이터 조회)
         t_db = time.time()
-        response = supabase.rpc(
-            "search_tracks_by_keyword_fast",
-            {
-                "query_embedding": projected_embedding,
-                "playlist_count": 100,
-                "track_count": 10
-            }
-        ).execute()
-        logger.info(f"DB processing took {time.time() - t_db:.2f}s")
+        try:
+            response = supabase.rpc(
+                "search_tracks_by_keyword_fast",
+                {
+                    "query_embedding": projected_embedding,
+                    "playlist_count": 100,
+                    "track_count": 10
+                }
+            ).execute()
+            logger.info(f"DB processing took {time.time() - t_db:.2f}s")
 
-        if not response.data:
-            return {"results": []}
+            if not response.data:
+                logger.warning("No results from search_tracks_by_keyword_fast")
+                return {"results": []}
 
-        # 4. 결과 포맷 변환
-        results = [
-            {
-                "track_key": item["track_key"],
-                "track_name": item["title"],
-                "artist": item["artist"],
-                "album": item["album"],
-                "pos_count": item["pos_count"],
-                "cover_image_url": item["cover_image_url"],
-            }
-            for item in response.data
-        ]
+            # 4. 결과 포맷 변환
+            results = [
+                {
+                    "track_key": item["track_key"],
+                    "track_name": item["title"],
+                    "artist": item["artist"],
+                    "album": item["album"],
+                    "pos_count": item["pos_count"],
+                    "cover_image_url": item["cover_image_url"],
+                }
+                for item in response.data
+            ]
 
-        logger.info(f"Keyword search completed: {len(results)} tracks")
-        return {"results": results}
+            logger.info(f"Keyword search completed: {len(results)} tracks")
+            return {"results": results}
+
+        except Exception as rpc_error:
+            logger.error(f"RPC function failed: {str(rpc_error)}, falling back to old method")
+
+            # Fallback: 기존 방식 사용
+            playlist_results = search_playlists_by_keyword(request.keyword, top_k=100)
+            if not playlist_results:
+                return {"results": []}
+
+            track_ids = recommend_tracks_by_weighted_frequency(playlist_results, top_k=10)
+            if not track_ids:
+                return {"results": []}
+
+            response = (
+                supabase.table("new_track_embeddings")
+                .select("track_key, title, artist, album, pos_count, cover_image_url")
+                .in_("track_key", track_ids)
+                .execute()
+            )
+
+            if not response.data:
+                return {"results": []}
+
+            track_data_map = {item["track_key"]: item for item in response.data}
+            results = []
+
+            for track_id in track_ids:
+                if track_id in track_data_map:
+                    item = track_data_map[track_id]
+                    results.append({
+                        "track_key": item["track_key"],
+                        "track_name": item.get("title"),
+                        "artist": item.get("artist"),
+                        "album": item.get("album"),
+                        "pos_count": item.get("pos_count"),
+                        "cover_image_url": item.get("cover_image_url"),
+                    })
+
+            logger.info(f"Keyword search completed (fallback): {len(results)} tracks")
+            return {"results": results}
 
     except Exception as e:
         logger.error(f"Keyword search failed: {str(e)}")
