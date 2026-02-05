@@ -712,29 +712,35 @@ async def log_listening(request: ListeningLogRequest):
         )
 
     try:
-        response = (
-            supabase.table("listening_logs")
-            .insert(
-                {
-                    "track_name": request.track_name,
-                    "artist_name": request.artist_name,
-                    "album_name": request.album_name,
-                    "spotify_uri": request.spotify_uri,
-                    "spotify_track_id": request.spotify_track_id,
-                    "duration_ms": request.duration_ms,
-                    "played_duration_ms": request.played_duration_ms,
-                    "completion_percentage": request.completion_percentage,
-                    "recommendation_mode": request.recommendation_mode,
-                    "similarity_score": request.similarity_score,
-                    "session_id": request.session_id,
-                }
-            )
-            .execute()
-        )
+        log_data = {
+            "track_name": request.track_name,
+            "artist_name": request.artist_name,
+            "album_name": request.album_name,
+            "spotify_uri": request.spotify_uri,
+            "spotify_track_id": request.spotify_track_id,
+            "session_id": request.session_id,
+        }
+
+        # Optional 필드는 값이 있을 때만 추가
+        if request.duration_ms is not None:
+            log_data["duration_ms"] = request.duration_ms
+        if request.played_duration_ms is not None:
+            log_data["played_duration_ms"] = request.played_duration_ms
+        if request.completion_percentage is not None:
+            log_data["completion_percentage"] = request.completion_percentage
+        if request.recommendation_mode is not None:
+            log_data["recommendation_mode"] = request.recommendation_mode
+        if request.similarity_score is not None:
+            log_data["similarity_score"] = request.similarity_score
+
+        logger.info(f"Logging track: {request.track_name} by {request.artist_name}")
+
+        response = supabase.table("listening_logs").insert(log_data).execute()
 
         if response.data is None:
             raise HTTPException(status_code=500, detail="Failed to log listening data")
 
+        logger.info(f"Successfully logged track: {request.track_name}")
         return {"success": True, "data": response.data}
 
     except Exception as e:
