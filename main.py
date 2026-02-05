@@ -247,14 +247,23 @@ def get_openai_embedding_with_retry(keyword: str):
     Returns:
         embedding vector
     """
-    logger.info(f"🔄 Calling OpenAI API for keyword: '{keyword}'")
-    embedding_response = openai_client.embeddings.create(
-        model="text-embedding-3-large",
-        input=[keyword],
-        timeout=30.0
-    )
-    logger.info(f"✅ OpenAI API response received")
-    return embedding_response.data[0].embedding
+    try:
+        logger.info(f"Calling OpenAI API for keyword: '{keyword}'")
+        start_time = time.time()
+
+        embedding_response = openai_client.embeddings.create(
+            model="text-embedding-3-large",
+            input=[keyword],
+            timeout=30.0
+        )
+
+        elapsed = time.time() - start_time
+        logger.info(f"OpenAI API success ({elapsed:.2f}s)")
+        return embedding_response.data[0].embedding
+
+    except Exception as e:
+        logger.warning(f"OpenAI API attempt failed: {type(e).__name__}: {str(e)}")
+        raise
 
 
 @retry(
