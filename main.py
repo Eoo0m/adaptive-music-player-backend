@@ -668,18 +668,22 @@ async def search_by_keyword(request: KeywordSearchRequest):
             return {"results": []}
 
         # 2. 트랙 추천
+        t1 = time.time()
         track_ids = recommend_tracks_by_weighted_frequency(playlist_results, top_k=10)
+        logger.info(f"Track recommendation took {time.time() - t1:.2f}s")
 
         if not track_ids:
             return {"results": []}
 
         # 3. 트랙 메타데이터 가져오기
+        t2 = time.time()
         response = (
             supabase.table("new_track_embeddings")
             .select("track_key, title, artist, album, pos_count, cover_image_url")
             .in_("track_key", track_ids)
             .execute()
         )
+        logger.info(f"Metadata fetch took {time.time() - t2:.2f}s")
 
         if not response.data:
             return {"results": []}
