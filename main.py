@@ -648,63 +648,51 @@ async def find_spotify_tracks(request: FindSpotifyTracksRequest):
 
 @app.post("/search-by-keyword")
 async def search_by_keyword(request: KeywordSearchRequest):
-    """
-    키워드 기반 검색
-    1. 키워드와 유사한 플레이리스트를 찾음
-    2. 해당 플레이리스트에 포함된 트랙을 가중평균으로 순위 매김
-    3. 상위 10개 트랙 반환
-    """
-
+    """키워드 기반 검색 (DB에서 모두 처리)"""
     if not request.keyword:
         raise HTTPException(status_code=400, detail="Missing keyword")
 
     try:
         logger.info(f"Keyword search: '{request.keyword}'")
 
-        # 1. 플레이리스트 검색
-        playlist_results = search_playlists_by_keyword(request.keyword, top_k=100)
+        # 1. OpenAI 임베딩
+        keyword_embedding = get_openai_embedding_with_retry(request.keyword)
 
-        if not playlist_results:
-            return {"results": []}
+        # 2. CLIP projection
+        keyword_tensor = torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
+        with torch.no_grad():
+            projected_query = playlist_clip_model.caption_proj(keyword_tensor)
+            projected_embedding = projected_query.cpu().numpy()[0].tolist()
 
-        # 2. 트랙 추천
-        t1 = time.time()
-        track_ids = recommend_tracks_by_weighted_frequency(playlist_results, top_k=10)
-        logger.info(f"Track recommendation took {time.time() - t1:.2f}s")
-
-        if not track_ids:
-            return {"results": []}
-
-        # 3. 트랙 메타데이터 가져오기
-        t2 = time.time()
-        response = (
-            supabase.table("new_track_embeddings")
-            .select("track_key, title, artist, album, pos_count, cover_image_url")
-            .in_("track_key", track_ids)
-            .execute()
-        )
-        logger.info(f"Metadata fetch took {time.time() - t2:.2f}s")
+        # 3. DB에서 한 번에 처리 (플레이리스트 검색 + 트랙 가중합 + 메타데이터 조회)
+        t_db = time.time()
+        response = supabase.rpc(
+            "search_tracks_by_keyword_fast",
+            {
+                "query_embedding": projected_embedding,
+                "playlist_count": 100,
+                "track_count": 10
+            }
+        ).execute()
+        logger.info(f"DB processing took {time.time() - t_db:.2f}s")
 
         if not response.data:
             return {"results": []}
 
         # 4. 결과 포맷 변환
-        track_data_map = {item["track_key"]: item for item in response.data}
-        results = []
+        results = [
+            {
+                "track_key": item["track_key"],
+                "track_name": item["title"],
+                "artist": item["artist"],
+                "album": item["album"],
+                "pos_count": item["pos_count"],
+                "cover_image_url": item["cover_image_url"],
+            }
+            for item in response.data
+        ]
 
-        for track_id in track_ids:
-            if track_id in track_data_map:
-                item = track_data_map[track_id]
-                results.append({
-                    "track_key": item["track_key"],
-                    "track_name": item.get("title"),
-                    "artist": item.get("artist"),
-                    "album": item.get("album"),
-                    "pos_count": item.get("pos_count"),
-                    "cover_image_url": item.get("cover_image_url"),
-                })
-
-        logger.info(f"Keyword search completed: {len(results)} tracks returned")
+        logger.info(f"Keyword search completed: {len(results)} tracks")
         return {"results": results}
 
     except Exception as e:
