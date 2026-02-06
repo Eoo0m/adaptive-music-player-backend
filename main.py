@@ -201,6 +201,11 @@ class RecommendRequest(BaseModel):
     num_recommendations: Optional[int] = 30
 
 
+class RecommendAverageRequest(BaseModel):
+    track_keys: List[str]
+    num_recommendations: Optional[int] = 5
+
+
 class FindSpotifyTracksRequest(BaseModel):
     tracks: List[dict]
     access_token: str
@@ -622,6 +627,89 @@ async def recommend(request: RecommendRequest):
         logger.error(f"Recommend error: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Recommendation service unavailable: {str(e)}"
+        )
+
+
+@app.post("/recommend-average")
+async def recommend_average(request: RecommendAverageRequest):
+    """여러 track_key들의 평균 임베딩 기반 유사 음악 추천"""
+    if not request.track_keys or len(request.track_keys) == 0:
+        raise HTTPException(status_code=400, detail="Missing track_keys")
+
+    try:
+        logger.info(f"🎯 Averaging {len(request.track_keys)} track embeddings")
+
+        # 각 track_key의 임베딩 가져오기
+        embeddings = []
+        for track_key in request.track_keys:
+            response = (
+                supabase.table("new_track_embeddings")
+                .select("embedding")
+                .eq("track_key", track_key)
+                .limit(1)
+                .execute()
+            )
+
+            if response.data and len(response.data) > 0:
+                embedding = response.data[0].get("embedding")
+                if embedding:
+                    embeddings.append(np.array(embedding))
+
+        if len(embeddings) == 0:
+            raise HTTPException(
+                status_code=404, detail="No embeddings found for provided track_keys"
+            )
+
+        # 평균 임베딩 계산
+        avg_embedding = np.mean(embeddings, axis=0)
+
+        # 정규화
+        avg_embedding = avg_embedding / np.linalg.norm(avg_embedding)
+
+        logger.info(f"✅ Computed average embedding from {len(embeddings)} tracks")
+
+        # 평균 임베딩으로 유사 곡 검색
+        response = supabase.rpc(
+            "match_tracks_by_embedding",
+            {
+                "query_embedding": avg_embedding.tolist(),
+                "match_count": request.num_recommendations,
+            },
+        ).execute()
+
+        if response.data is None:
+            raise HTTPException(
+                status_code=500, detail="Average-based recommendation failed"
+            )
+
+        # 결과 포맷 변환
+        recommendations = [
+            {
+                "track_id": item["id"],
+                "track_key": item["track_key"],
+                "track": item["title"],
+                "artist": item["artist"],
+                "album": item["album"],
+                "pos_count": item["pos_count"],
+                "similarity": item.get("similarity", 0),
+                "cover_image_url": item.get("cover_image_url"),
+            }
+            for item in response.data
+        ]
+
+        logger.info(f"Average-based recommend: {len(recommendations)} tracks from {len(embeddings)} averaged tracks")
+
+        return {
+            "recommendations": recommendations,
+            "num_averaged_tracks": len(embeddings),
+        }
+
+    except Exception as e:
+        logger.error(f"Recommend average error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500, detail=f"Average-based recommendation failed: {str(e)}"
         )
 
 
