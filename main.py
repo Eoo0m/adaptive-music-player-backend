@@ -654,7 +654,10 @@ async def recommend_average(request: RecommendAverageRequest):
             if response.data and len(response.data) > 0:
                 embedding = response.data[0].get("embedding")
                 if embedding:
-                    embeddings.append(np.array(embedding))
+                    # 임베딩을 float 배열로 명시적 변환
+                    embedding_array = np.array(embedding, dtype=np.float32)
+                    embeddings.append(embedding_array)
+                    logger.debug(f"Loaded embedding for {track_key}: shape={embedding_array.shape}, dtype={embedding_array.dtype}")
 
         if len(embeddings) == 0:
             raise HTTPException(
@@ -662,12 +665,15 @@ async def recommend_average(request: RecommendAverageRequest):
             )
 
         # 평균 임베딩 계산
-        avg_embedding = np.mean(embeddings, axis=0)
+        embeddings_stack = np.stack(embeddings)  # 명시적으로 stack
+        avg_embedding = np.mean(embeddings_stack, axis=0)
 
         # 정규화
-        avg_embedding = avg_embedding / np.linalg.norm(avg_embedding)
+        norm = np.linalg.norm(avg_embedding)
+        if norm > 0:
+            avg_embedding = avg_embedding / norm
 
-        logger.info(f"✅ Computed average embedding from {len(embeddings)} tracks")
+        logger.info(f"✅ Computed average embedding from {len(embeddings)} tracks (shape: {avg_embedding.shape}, dtype: {avg_embedding.dtype})")
 
         # 평균 임베딩으로 유사 곡 검색
         response = supabase.rpc(
