@@ -135,3 +135,35 @@ as $$
   from top_tracks tt
   join new_track_embeddings te on te.track_key = tt.tk;
 $$;
+
+-- 5. match_tracks_by_embedding: 평균 임베딩으로 유사 트랙 검색
+drop function if exists match_tracks_by_embedding(vector(512), integer);
+create or replace function match_tracks_by_embedding(
+    query_embedding vector(512),
+    match_count int default 30
+)
+returns table (
+    id int,
+    track_key text,
+    title text,
+    artist text,
+    album text,
+    pos_count int,
+    cover_image_url text,
+    similarity float
+)
+language sql
+as $$
+  select
+    id,
+    track_key,
+    title,
+    artist,
+    album,
+    pos_count,
+    cover_image_url,
+    1 - (embedding <=> query_embedding) as similarity
+  from new_track_embeddings
+  order by embedding <=> query_embedding
+  limit match_count;
+$$;
