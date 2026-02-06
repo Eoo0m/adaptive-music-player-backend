@@ -654,6 +654,11 @@ async def recommend_average(request: RecommendAverageRequest):
             if response.data and len(response.data) > 0:
                 embedding = response.data[0].get("embedding")
                 if embedding:
+                    # 문자열로 저장된 경우 JSON 파싱
+                    if isinstance(embedding, str):
+                        import json
+                        embedding = json.loads(embedding)
+
                     # 임베딩을 float 배열로 명시적 변환
                     embedding_array = np.array(embedding, dtype=np.float32)
                     embeddings.append(embedding_array)
