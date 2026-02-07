@@ -190,21 +190,22 @@ async def startup_event():
         )
         logger.info(f"  ✅ OpenAI API warmed up ({time.time() - warmup_start:.2f}s)")
 
-        # 2. DB 벡터 검색 워밍업 (실제 쿼리와 유사한 정규화된 랜덤 벡터 사용)
-        logger.info("  ⏳ Warming up database (vector search)...")
+        # 2. DB 벡터 검색 워밍업 (3-5회 다양한 벡터로 완전히 워밍업)
+        logger.info("  ⏳ Warming up database (vector search with 5 queries)...")
         warmup_start = time.time()
-        # 실제 임베딩과 유사한 분포를 가진 랜덤 벡터 생성 후 L2 정규화
-        warmup_vec = np.random.randn(512).astype(np.float32)
-        warmup_vec = warmup_vec / np.linalg.norm(warmup_vec)
-        _ = supabase.rpc(
-            "search_tracks_by_keyword_fast",
-            {
-                "query_embedding": warmup_vec.tolist(),
-                "playlist_count": 50,  # 실제 검색과 동일한 범위
-                "track_count": 10
-            }
-        ).execute()
-        logger.info(f"  ✅ Database warmed up ({time.time() - warmup_start:.2f}s)")
+        for i in range(5):
+            # 매번 다른 랜덤 벡터 생성 (인덱스 다양한 영역 로드)
+            warmup_vec = np.random.randn(512).astype(np.float32)
+            warmup_vec = warmup_vec / np.linalg.norm(warmup_vec)
+            _ = supabase.rpc(
+                "search_tracks_by_keyword_fast",
+                {
+                    "query_embedding": warmup_vec.tolist(),
+                    "playlist_count": 50,  # 실제 검색과 동일한 범위
+                    "track_count": 10
+                }
+            ).execute()
+        logger.info(f"  ✅ Database fully warmed up ({time.time() - warmup_start:.2f}s, 5 queries)")
 
         # Keep-Alive 백그라운드 작업 시작
         keep_alive_task = asyncio.create_task(keep_alive_ping())
