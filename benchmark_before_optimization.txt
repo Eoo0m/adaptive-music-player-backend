@@ -1,0 +1,137 @@
+🎵 DynPlayer Keyword Search Benchmark
+🌐 Testing URL: https://api.dynplayer.win
+
+🚀 Starting benchmark with 110 keywords
+📍 Target: https://api.dynplayer.win
+--------------------------------------------------------------------------------
+[  1/110] Testing: 'happy                         ' ... ✅ 9.53s - 10 results
+[  2/110] Testing: 'sad                           ' ... ✅ 1.28s - 10 results
+[  3/110] Testing: 'energetic                     ' ... ✅ 2.13s - 10 results
+[  4/110] Testing: 'calm                          ' ... ✅ 1.38s - 10 results
+[  5/110] Testing: 'romantic                      ' ... ✅ 1.35s - 10 results
+[  6/110] Testing: 'angry                         ' ... ✅ 1.40s - 10 results
+[  7/110] Testing: 'peaceful                      ' ... ✅ 1.34s - 10 results
+[  8/110] Testing: 'exciting                      ' ... ✅ 1.11s - 10 results
+[  9/110] Testing: 'melancholic                   ' ... ✅ 1.07s - 10 results
+[ 10/110] Testing: 'cheerful                      ' ... ✅ 1.06s - 10 results
+[ 11/110] Testing: 'dreamy                        ' ... ✅ 1.06s - 10 results
+[ 12/110] Testing: 'intense                       ' ... ✅ 1.05s - 10 results
+[ 13/110] Testing: 'relaxing                      ' ... ✅ 1.08s - 10 results
+[ 14/110] Testing: 'uplifting                     ' ... ✅ 1.07s - 10 results
+[ 15/110] Testing: 'dark                          ' ... ✅ 1.33s - 10 results
+[ 16/110] Testing: 'rock                          ' ... ✅ 1.06s - 10 results
+[ 17/110] Testing: 'pop                           ' ... ✅ 1.10s - 10 results
+[ 18/110] Testing: 'jazz                          ' ... ✅ 1.15s - 10 results
+[ 19/110] Testing: 'classical                     ' ... ✅ 1.10s - 10 results
+[ 20/110] Testing: 'hip hop                       ' ... ✅ 1.08s - 10 results
+[ 21/110] Testing: 'electronic                    ' ... ✅ 1.07s - 10 results
+[ 22/110] Testing: 'country                       ' ... ✅ 1.07s - 10 results
+[ 23/110] Testing: 'blues                         ' ... ✅ 1.34s - 10 results
+[ 24/110] Testing: 'reggae                        ' ... ✅ 1.07s - 10 results
+[ 25/110] Testing: 'metal                         ' ... ✅ 1.25s - 10 results
+[ 26/110] Testing: 'folk                          ' ... ✅ 1.10s - 10 results
+[ 27/110] Testing: 'r&b                           ' ... ✅ 1.08s - 10 results
+[ 28/110] Testing: 'soul                          ' ... ✅ 1.16s - 10 results
+[ 29/110] Testing: 'funk                          ' ... ✅ 1.16s - 10 results
+[ 30/110] Testing: 'disco                         ' ... ✅ 1.04s - 10 results
+[ 31/110] Testing: 'techno                        ' ... ✅ 1.05s - 10 results
+[ 32/110] Testing: 'workout                       ' ... ✅ 1.08s - 10 results
+[ 33/110] Testing: 'study                         ' ... ✅ 1.05s - 10 results
+[ 34/110] Testing: 'party                         ' ... ✅ 1.05s - 10 results
+[ 35/110] Testing: 'sleep                         ' ... ✅ 1.09s - 10 results
+[ 36/110] Testing: 'driving                       ' ... ✅ 1.07s - 10 results
+[ 37/110] Testing: 'cooking                       ' ... ✅ 1.07s - 10 results
+[ 38/110] Testing: 'meditation                    ' ... ✅ 1.06s - 10 results
+[ 39/110] Testing: 'dance                         ' ... ✅ 1.07s - 10 results
+[ 40/110] Testing: 'running                       ' ... ✅ 1.04s - 10 results
+[ 41/110] Testing: 'yoga                          ' ... ✅ 1.07s - 10 results
+[ 42/110] Testing: 'focus                         ' ... ✅ 1.08s - 10 results
+[ 43/110] Testing: 'chill                         ' ... ✅ 1.11s - 10 results
+[ 44/110] Testing: 'morning                       ' ... ✅ 1.06s - 10 results
+[ 45/110] Testing: 'night                         ' ... ✅ 1.06s - 10 results
+[ 46/110] Testing: 'rain                          ' ... ✅ 1.06s - 10 results
+[ 47/110] Testing: 'summer                        ' ... ✅ 1.07s - 10 results
+[ 48/110] Testing: 'piano                         ' ... ✅ 1.05s - 10 results
+[ 49/110] Testing: 'guitar                        ' ... ✅ 1.19s - 10 results
+[ 50/110] Testing: 'drums                         ' ... ✅ 1.14s - 10 results
+[ 51/110] Testing: 'violin                        ' ... ✅ 1.07s - 10 results
+[ 52/110] Testing: 'saxophone                     ' ... ✅ 1.15s - 10 results
+[ 53/110] Testing: 'bass                          ' ... ✅ 1.23s - 10 results
+[ 54/110] Testing: 'synth                         ' ... ✅ 1.22s - 10 results
+[ 55/110] Testing: 'flute                         ' ... ✅ 1.09s - 10 results
+[ 56/110] Testing: 'acoustic                      ' ... ✅ 1.24s - 10 results
+[ 57/110] Testing: 'instrumental                  ' ... ✅ 1.18s - 10 results
+[ 58/110] Testing: 'vocal                         ' ... ✅ 1.14s - 10 results
+[ 59/110] Testing: 'orchestral                    ' ... ✅ 1.14s - 10 results
+[ 60/110] Testing: 'beat                          ' ... ✅ 1.19s - 10 results
+[ 61/110] Testing: 'melody                        ' ... ✅ 1.23s - 10 results
+[ 62/110] Testing: 'harmony                       ' ... ✅ 1.06s - 10 results
+[ 63/110] Testing: 'rhythm                        ' ... ✅ 1.08s - 10 results
+[ 64/110] Testing: '80s                           ' ... ✅ 1.06s - 10 results
+[ 65/110] Testing: '90s                           ' ... ✅ 1.08s - 10 results
+[ 66/110] Testing: 'retro                         ' ... ✅ 1.03s - 10 results
+[ 67/110] Testing: 'modern                        ' ... ✅ 1.11s - 10 results
+[ 68/110] Testing: 'vintage                       ' ... ✅ 1.08s - 10 results
+[ 69/110] Testing: 'contemporary                  ' ... ✅ 1.02s - 10 results
+[ 70/110] Testing: 'classic                       ' ... ✅ 1.07s - 10 results
+[ 71/110] Testing: 'new                           ' ... ✅ 1.06s - 10 results
+[ 72/110] Testing: 'beatles                       ' ... ✅ 1.18s - 10 results
+[ 73/110] Testing: 'queen                         ' ... ✅ 1.05s - 10 results
+[ 74/110] Testing: 'elvis                         ' ... ✅ 1.11s - 10 results
+[ 75/110] Testing: 'madonna                       ' ... ✅ 1.11s - 10 results
+[ 76/110] Testing: 'michael jackson               ' ... ✅ 1.03s - 10 results
+[ 77/110] Testing: 'led zeppelin                  ' ... ✅ 1.05s - 10 results
+[ 78/110] Testing: 'pink floyd                    ' ... ✅ 1.07s - 10 results
+[ 79/110] Testing: 'david bowie                   ' ... ✅ 1.06s - 10 results
+[ 80/110] Testing: 'nirvana                       ' ... ✅ 1.04s - 10 results
+[ 81/110] Testing: 'radiohead                     ' ... ✅ 1.03s - 10 results
+[ 82/110] Testing: 'coldplay                      ' ... ✅ 1.08s - 10 results
+[ 83/110] Testing: 'imagine dragons               ' ... ✅ 1.04s - 10 results
+[ 84/110] Testing: 'maroon 5                      ' ... ✅ 1.10s - 10 results
+[ 85/110] Testing: '사랑                            ' ... ✅ 1.08s - 10 results
+[ 86/110] Testing: '이별                            ' ... ✅ 1.11s - 10 results
+[ 87/110] Testing: '행복                            ' ... ✅ 1.05s - 10 results
+[ 88/110] Testing: '슬픔                            ' ... ✅ 1.08s - 10 results
+[ 89/110] Testing: '희망                            ' ... ✅ 1.05s - 10 results
+[ 90/110] Testing: '그리움                           ' ... ✅ 1.12s - 10 results
+[ 91/110] Testing: '추억                            ' ... ✅ 1.04s - 10 results
+[ 92/110] Testing: '여행                            ' ... ✅ 1.14s - 10 results
+[ 93/110] Testing: '봄                             ' ... ✅ 1.09s - 10 results
+[ 94/110] Testing: '가을                            ' ... ✅ 1.04s - 10 results
+[ 95/110] Testing: '겨울                            ' ... ✅ 1.07s - 10 results
+[ 96/110] Testing: '비                             ' ... ✅ 1.07s - 10 results
+[ 97/110] Testing: '바다                            ' ... ✅ 1.02s - 10 results
+[ 98/110] Testing: '밤                             ' ... ✅ 1.04s - 10 results
+[ 99/110] Testing: '별                             ' ... ✅ 1.08s - 10 results
+[100/110] Testing: '달                             ' ... ✅ 1.08s - 10 results
+[101/110] Testing: 'love song                     ' ... ✅ 1.05s - 10 results
+[102/110] Testing: 'party music                   ' ... ✅ 1.06s - 10 results
+[103/110] Testing: 'sad ballad                    ' ... ✅ 1.07s - 10 results
+[104/110] Testing: 'upbeat pop                    ' ... ✅ 1.86s - 10 results
+[105/110] Testing: 'smooth jazz                   ' ... ✅ 1.29s - 10 results
+[106/110] Testing: 'hard rock                     ' ... ✅ 1.32s - 10 results
+[107/110] Testing: 'indie folk                    ' ... ✅ 1.24s - 10 results
+[108/110] Testing: 'ambient music                 ' ... ✅ 1.14s - 10 results
+[109/110] Testing: 'latin dance                   ' ... ✅ 1.08s - 10 results
+[110/110] Testing: 'gospel music                  ' ... ✅ 1.06s - 10 results
+
+================================================================================
+📊 BENCHMARK SUMMARY
+================================================================================
+Total Tests:     110
+Successful:      110 (100.0%)
+Failed:          0
+
+⏱️  Total Response Times:
+  Minimum:       1.02s
+  Maximum:       9.53s
+  Mean:          1.20s
+  Median:        1.08s
+  Std Dev:       0.81s
+================================================================================
+
+⏰ Total benchmark time: 143.79s
+
+💾 Results saved to: benchmark_results_20260207_191941.json
+
+✨ Benchmark complete!

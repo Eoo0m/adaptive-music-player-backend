@@ -20,6 +20,7 @@ import sys
 from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from openai import APIError, APIConnectionError, RateLimitError, Timeout
+import asyncio
 
 # 로깅 설정
 logging.basicConfig(
@@ -134,6 +135,84 @@ logger.info(f"✅ Playlist CLIP model loaded on {device}")
 
 # FastAPI 앱 생성
 app = FastAPI(title="Dynplayer API")
+
+
+# 백그라운드 Keep-Alive 작업
+keep_alive_task = None
+
+async def keep_alive_ping():
+    """주기적으로 서버를 깨워있게 하는 백그라운드 작업"""
+    await asyncio.sleep(30)  # 워밍업 후 30초 대기
+
+    while True:
+        try:
+            # 5분마다 가벼운 DB 쿼리 실행 (캐시 유지)
+            await asyncio.sleep(300)  # 5분 = 300초
+
+            logger.debug("🏓 Keep-alive ping...")
+            _ = supabase.table("new_playlists").select("playlist_id").limit(1).execute()
+            logger.debug("✅ Keep-alive ping successful")
+
+        except asyncio.CancelledError:
+            logger.info("🛑 Keep-alive task cancelled")
+            break
+        except Exception as e:
+            logger.warning(f"⚠️  Keep-alive ping failed (non-critical): {str(e)}")
+
+
+# 서버 시작 시 워밍업
+@app.on_event("startup")
+async def startup_event():
+    """서버 시작 시 콜드 스타트 제거를 위한 워밍업 + Keep-Alive 시작"""
+    global keep_alive_task
+
+    logger.info("🔥 Starting warmup sequence...")
+
+    try:
+        # 1. OpenAI API 워밍업
+        logger.info("  ⏳ Warming up OpenAI API...")
+        warmup_start = time.time()
+        test_embedding = get_openai_embedding_with_retry("warmup")
+        logger.info(f"  ✅ OpenAI API warmed up ({time.time() - warmup_start:.2f}s)")
+
+        # 2. CLIP 모델 워밍업
+        logger.info("  ⏳ Warming up CLIP projection...")
+        warmup_start = time.time()
+        test_tensor = torch.tensor(test_embedding, dtype=torch.float32).unsqueeze(0).to(device)
+        with torch.no_grad():
+            _ = playlist_clip_model.caption_proj(test_tensor)
+        logger.info(f"  ✅ CLIP projection warmed up ({time.time() - warmup_start:.2f}s)")
+
+        # 3. 데이터베이스 워밍업 (간단한 쿼리)
+        logger.info("  ⏳ Warming up database connection...")
+        warmup_start = time.time()
+        _ = supabase.table("new_playlists").select("playlist_id").limit(1).execute()
+        logger.info(f"  ✅ Database warmed up ({time.time() - warmup_start:.2f}s)")
+
+        logger.info("🚀 Warmup complete - server ready!")
+
+        # Keep-Alive 백그라운드 작업 시작
+        keep_alive_task = asyncio.create_task(keep_alive_ping())
+        logger.info("🏓 Keep-alive task started (ping every 5 minutes)")
+
+    except Exception as e:
+        logger.warning(f"⚠️  Startup failed (non-critical): {str(e)}")
+
+
+# 서버 종료 시 정리
+@app.on_event("shutdown")
+async def shutdown_event():
+    """서버 종료 시 백그라운드 작업 정리"""
+    global keep_alive_task
+
+    if keep_alive_task:
+        keep_alive_task.cancel()
+        try:
+            await keep_alive_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("🛑 Keep-alive task stopped")
+
 
 # 요청 로깅 미들웨어
 @app.middleware("http")
@@ -818,14 +897,21 @@ async def search_by_keyword(request: KeywordSearchRequest):
     try:
         logger.info(f"Keyword search: '{request.keyword}'")
 
+        # 타이밍 측정
+        timings = {}
+
         # 1. OpenAI 임베딩
+        t_openai = time.time()
         keyword_embedding = get_openai_embedding_with_retry(request.keyword)
+        timings["openai"] = time.time() - t_openai
 
         # 2. CLIP projection
+        t_proj = time.time()
         keyword_tensor = torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
         with torch.no_grad():
             projected_query = playlist_clip_model.caption_proj(keyword_tensor)
             projected_embedding = projected_query.cpu().numpy()[0].tolist()
+        timings["projection"] = time.time() - t_proj
 
         # 3. DB에서 한 번에 처리 (플레이리스트 검색 + 트랙 가중합 + 메타데이터 조회)
         t_db = time.time()
@@ -835,7 +921,8 @@ async def search_by_keyword(request: KeywordSearchRequest):
                 playlist_count=50,  # 100 → 50으로 줄여서 속도 개선
                 track_count=10
             )
-            logger.info(f"DB processing took {time.time() - t_db:.2f}s")
+            timings["db"] = time.time() - t_db
+            logger.info(f"DB processing took {timings['db']:.2f}s")
 
             if not response.data:
                 logger.warning("No results from search_tracks_by_keyword_fast")
@@ -855,7 +942,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
             ]
 
             logger.info(f"Keyword search completed: {len(results)} tracks")
-            return {"results": results}
+            return {"results": results, "timings": timings}
 
         except Exception as rpc_error:
             logger.error(f"RPC function failed: {str(rpc_error)}, falling back to old method")
