@@ -193,35 +193,33 @@ async def startup_event():
     logger.info("🔥 Starting warmup sequence...")
 
     try:
-        # 1. OpenAI API 워밍업
+        # 1. OpenAI API 워밍업 (small 모델 사용)
         logger.info("  ⏳ Warming up OpenAI API...")
         warmup_start = time.time()
-        test_embedding = get_openai_embedding_with_retry("warmup")
+        openai_client.embeddings.create(
+            model="text-embedding-3-small",
+            input="warmup"
+        )
         logger.info(f"  ✅ OpenAI API warmed up ({time.time() - warmup_start:.2f}s)")
 
-        # 2. CLIP 모델 워밍업
-        logger.info("  ⏳ Warming up CLIP projection...")
-        warmup_start = time.time()
-        test_tensor = torch.tensor(test_embedding, dtype=torch.float32).unsqueeze(0).to(device)
-        with torch.no_grad():
-            projected_embedding = playlist_clip_model.caption_proj(test_tensor)
-            projected_list = projected_embedding.cpu().numpy()[0].tolist()
-        logger.info(f"  ✅ CLIP projection warmed up ({time.time() - warmup_start:.2f}s)")
-
-        # 3. 데이터베이스 워밍업 (실제 벡터 검색으로 캐시 준비)
+        # 2. DB 벡터 검색 워밍업 (더미 벡터로 캐시 준비)
         logger.info("  ⏳ Warming up database (vector search)...")
         warmup_start = time.time()
-        _ = search_tracks_by_keyword_fast_with_retry(
-            query_embedding=projected_list,
-            playlist_count=50,
-            track_count=10
-        )
+        dummy_vec = [0.0] * 512  # 512차원 더미 벡터
+        _ = supabase.rpc(
+            "search_tracks_by_keyword_fast",
+            {
+                "query_embedding": dummy_vec,
+                "playlist_count": 1,
+                "track_count": 1
+            }
+        ).execute()
         logger.info(f"  ✅ Database warmed up ({time.time() - warmup_start:.2f}s)")
-
-        logger.info("🚀 Warmup complete - server ready!")
 
         # Keep-Alive 백그라운드 작업 시작
         keep_alive_task = asyncio.create_task(keep_alive_ping())
+
+        logger.info("🚀 Full warmup done - server ready!")
         logger.info("🏓 Keep-alive task started (DB + OpenAI ping every 10 minutes)")
 
     except Exception as e:
