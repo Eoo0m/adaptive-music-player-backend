@@ -146,11 +146,20 @@ async def keep_alive_ping():
 
     while True:
         try:
-            # 5분마다 가벼운 DB 쿼리 실행 (캐시 유지)
-            await asyncio.sleep(300)  # 5분 = 300초
+            # 10분마다 ping (DB + OpenAI)
+            await asyncio.sleep(600)  # 10분 = 600초
 
             logger.debug("🏓 Keep-alive ping...")
+
+            # DB ping (무료)
             _ = supabase.table("new_playlists").select("playlist_id").limit(1).execute()
+
+            # OpenAI ping (저렴한 small 모델 사용)
+            _ = openai_client.embeddings.create(
+                model="text-embedding-3-small",
+                input="ping"
+            )
+
             logger.debug("✅ Keep-alive ping successful")
 
         except asyncio.CancelledError:
@@ -193,7 +202,7 @@ async def startup_event():
 
         # Keep-Alive 백그라운드 작업 시작
         keep_alive_task = asyncio.create_task(keep_alive_ping())
-        logger.info("🏓 Keep-alive task started (ping every 5 minutes)")
+        logger.info("🏓 Keep-alive task started (DB + OpenAI ping every 10 minutes)")
 
     except Exception as e:
         logger.warning(f"⚠️  Startup failed (non-critical): {str(e)}")
