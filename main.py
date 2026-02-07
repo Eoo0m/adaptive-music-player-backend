@@ -332,6 +332,36 @@ def search_tracks_by_keyword_fast_with_retry(query_embedding: list, playlist_cou
     return response
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    reraise=True
+)
+def search_tracks_by_title_with_retry(query_text: str, match_count: int = 10):
+    """
+    제목 기반 트랙 검색 RPC (재시도 로직 포함)
+
+    Args:
+        query_text: 검색할 제목 텍스트
+        match_count: 반환할 트랙 개수
+
+    Returns:
+        Supabase response data
+    """
+    logger.info(f"🔄 Calling Supabase RPC: search_tracks_by_title for '{query_text}'")
+    start_time = time.time()
+    response = supabase.rpc(
+        "search_tracks_by_title",
+        {
+            "query_text": query_text,
+            "match_count": match_count
+        }
+    ).execute()
+    elapsed = time.time() - start_time
+    logger.info(f"✅ search_tracks_by_title completed ({elapsed:.2f}s)")
+    return response
+
+
 def search_playlists_by_keyword(keyword: str, top_k: int = 50):
     """
     키워드로 플레이리스트 검색 (Supabase 벡터 검색 사용)
@@ -554,9 +584,10 @@ async def search_songs(request: SearchRequest):
         raise HTTPException(status_code=400, detail="Missing query")
 
     try:
-        response = supabase.rpc(
-            "search_tracks_by_title", {"query_text": request.query, "match_count": 10}
-        ).execute()
+        response = search_tracks_by_title_with_retry(
+            query_text=request.query,
+            match_count=10
+        )
 
         if response.data is None:
             raise HTTPException(status_code=500, detail="Search failed")
