@@ -146,36 +146,23 @@ async def keep_alive_ping():
 
     while True:
         try:
-            # 10분마다 ping (OpenAI + CLIP + DB 벡터 검색)
-            await asyncio.sleep(600)  # 10분 = 600초
+            # 20분마다 DB ping
+            await asyncio.sleep(1200)  # 20분 = 1200초
 
-            logger.debug("🏓 Keep-alive ping...")
+            logger.debug("🏓 DB Keep-alive ping...")
 
-            # OpenAI ping (저렴한 small 모델 사용)
-            ping_embedding = openai_client.embeddings.create(
-                model="text-embedding-3-small",
-                input="ping"
-            ).data[0].embedding
-
-            # CLIP projection ping (3072 → 512 차원)
-            # text-embedding-3-large 크기로 패딩 (3072차원)
-            ping_embedding_padded = ping_embedding + [0.0] * (3072 - len(ping_embedding))
-            ping_tensor = torch.tensor(ping_embedding_padded, dtype=torch.float32).unsqueeze(0).to(device)
-            with torch.no_grad():
-                ping_projected = playlist_clip_model.caption_proj(ping_tensor)
-                ping_list = ping_projected.cpu().numpy()[0].tolist()
-
-            # DB 벡터 검색 ping (실제 쿼리로 캐시 유지)
+            # DB 벡터 검색 ping (실제 검색 범위와 동일하게)
+            dummy_vec = [0.0] * 512
             _ = supabase.rpc(
                 "search_tracks_by_keyword_fast",
                 {
-                    "query_embedding": ping_list,
-                    "playlist_count": 10,  # 가벼운 쿼리
-                    "track_count": 5
+                    "query_embedding": dummy_vec,
+                    "playlist_count": 50,  # 실제 검색과 동일한 범위
+                    "track_count": 10
                 }
             ).execute()
 
-            logger.debug("✅ Keep-alive ping successful (OpenAI + CLIP + DB)")
+            logger.debug("✅ DB Keep-alive ping successful")
 
         except asyncio.CancelledError:
             logger.info("🛑 Keep-alive task cancelled")
@@ -202,7 +189,7 @@ async def startup_event():
         )
         logger.info(f"  ✅ OpenAI API warmed up ({time.time() - warmup_start:.2f}s)")
 
-        # 2. DB 벡터 검색 워밍업 (더미 벡터로 캐시 준비)
+        # 2. DB 벡터 검색 워밍업 (실제 검색 범위와 동일하게)
         logger.info("  ⏳ Warming up database (vector search)...")
         warmup_start = time.time()
         dummy_vec = [0.0] * 512  # 512차원 더미 벡터
@@ -210,8 +197,8 @@ async def startup_event():
             "search_tracks_by_keyword_fast",
             {
                 "query_embedding": dummy_vec,
-                "playlist_count": 1,
-                "track_count": 1
+                "playlist_count": 50,  # 실제 검색과 동일한 범위
+                "track_count": 10
             }
         ).execute()
         logger.info(f"  ✅ Database warmed up ({time.time() - warmup_start:.2f}s)")
@@ -220,7 +207,7 @@ async def startup_event():
         keep_alive_task = asyncio.create_task(keep_alive_ping())
 
         logger.info("🚀 Full warmup done - server ready!")
-        logger.info("🏓 Keep-alive task started (DB + OpenAI ping every 10 minutes)")
+        logger.info("🏓 Keep-alive task started (DB ping every 20 minutes)")
 
     except Exception as e:
         logger.warning(f"⚠️  Startup failed (non-critical): {str(e)}")

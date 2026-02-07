@@ -1,0 +1,1338 @@
+{
+  "stats": {
+    "total_tests": 110,
+    "successful": 110,
+    "failed": 0,
+    "success_rate": 100.0,
+    "min_time": 0.6414570808410645,
+    "max_time": 13.9251868724823,
+    "mean_time": 0.9025371551513672,
+    "median_time": 0.7406444549560547,
+    "stdev_time": 1.2684391329803202,
+    "avg_openai_time": 0.13526703227650036,
+    "avg_projection_time": 0.006955422054637562,
+    "avg_db_time": 0.4963890422474254
+  },
+  "results": [
+    {
+      "keyword": "happy",
+      "success": true,
+      "elapsed": 13.9251868724823,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.14110565185546875,
+        "projection": 0.008514404296875,
+        "db": 13.514052152633667
+      }
+    },
+    {
+      "keyword": "sad",
+      "success": true,
+      "elapsed": 1.2736408710479736,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11795926094055176,
+        "projection": 0.0070035457611083984,
+        "db": 0.7359819412231445
+      }
+    },
+    {
+      "keyword": "energetic",
+      "success": true,
+      "elapsed": 0.8839309215545654,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12577056884765625,
+        "projection": 0.007773160934448242,
+        "db": 0.5957105159759521
+      }
+    },
+    {
+      "keyword": "calm",
+      "success": true,
+      "elapsed": 0.8727626800537109,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.15456700325012207,
+        "projection": 0.0070531368255615234,
+        "db": 0.37650203704833984
+      }
+    },
+    {
+      "keyword": "romantic",
+      "success": true,
+      "elapsed": 0.7049579620361328,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.1151130199432373,
+        "projection": 0.006841182708740234,
+        "db": 0.3556051254272461
+      }
+    },
+    {
+      "keyword": "angry",
+      "success": true,
+      "elapsed": 0.8117570877075195,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10532689094543457,
+        "projection": 0.006841182708740234,
+        "db": 0.3617072105407715
+      }
+    },
+    {
+      "keyword": "peaceful",
+      "success": true,
+      "elapsed": 0.8651580810546875,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.09296154975891113,
+        "projection": 0.006830930709838867,
+        "db": 0.3579401969909668
+      }
+    },
+    {
+      "keyword": "exciting",
+      "success": true,
+      "elapsed": 1.2094168663024902,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.41259765625,
+        "projection": 0.011056661605834961,
+        "db": 0.365123987197876
+      }
+    },
+    {
+      "keyword": "melancholic",
+      "success": true,
+      "elapsed": 0.7244317531585693,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.16712450981140137,
+        "projection": 0.00688934326171875,
+        "db": 0.3462395668029785
+      }
+    },
+    {
+      "keyword": "cheerful",
+      "success": true,
+      "elapsed": 0.7325379848480225,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.15856194496154785,
+        "projection": 0.006666660308837891,
+        "db": 0.3552215099334717
+      }
+    },
+    {
+      "keyword": "dreamy",
+      "success": true,
+      "elapsed": 0.7634377479553223,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12502837181091309,
+        "projection": 0.006938457489013672,
+        "db": 0.3471713066101074
+      }
+    },
+    {
+      "keyword": "intense",
+      "success": true,
+      "elapsed": 0.732593297958374,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.1478276252746582,
+        "projection": 0.006677865982055664,
+        "db": 0.36004066467285156
+      }
+    },
+    {
+      "keyword": "relaxing",
+      "success": true,
+      "elapsed": 0.689784049987793,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11935877799987793,
+        "projection": 0.00762939453125,
+        "db": 0.3590688705444336
+      }
+    },
+    {
+      "keyword": "uplifting",
+      "success": true,
+      "elapsed": 0.9220917224884033,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.14731550216674805,
+        "projection": 0.0071866512298583984,
+        "db": 0.3503701686859131
+      }
+    },
+    {
+      "keyword": "dark",
+      "success": true,
+      "elapsed": 0.7143959999084473,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.15065646171569824,
+        "projection": 0.006692409515380859,
+        "db": 0.35880398750305176
+      }
+    },
+    {
+      "keyword": "rock",
+      "success": true,
+      "elapsed": 0.7032110691070557,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13150334358215332,
+        "projection": 0.007114887237548828,
+        "db": 0.35060834884643555
+      }
+    },
+    {
+      "keyword": "pop",
+      "success": true,
+      "elapsed": 0.6613879203796387,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10535120964050293,
+        "projection": 0.006610393524169922,
+        "db": 0.3488962650299072
+      }
+    },
+    {
+      "keyword": "jazz",
+      "success": true,
+      "elapsed": 0.7494580745697021,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10489082336425781,
+        "projection": 0.006705522537231445,
+        "db": 0.361971378326416
+      }
+    },
+    {
+      "keyword": "classical",
+      "success": true,
+      "elapsed": 0.9309461116790771,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10070490837097168,
+        "projection": 0.006929874420166016,
+        "db": 0.4293241500854492
+      }
+    },
+    {
+      "keyword": "hip hop",
+      "success": true,
+      "elapsed": 2.5111191272735596,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13098359107971191,
+        "projection": 0.006743669509887695,
+        "db": 2.095282554626465
+      }
+    },
+    {
+      "keyword": "electronic",
+      "success": true,
+      "elapsed": 0.6759598255157471,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10152935981750488,
+        "projection": 0.006539106369018555,
+        "db": 0.36705684661865234
+      }
+    },
+    {
+      "keyword": "country",
+      "success": true,
+      "elapsed": 0.8300430774688721,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13607525825500488,
+        "projection": 0.0064394474029541016,
+        "db": 0.3573920726776123
+      }
+    },
+    {
+      "keyword": "blues",
+      "success": true,
+      "elapsed": 0.7160911560058594,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11603736877441406,
+        "projection": 0.006589651107788086,
+        "db": 0.35964131355285645
+      }
+    },
+    {
+      "keyword": "reggae",
+      "success": true,
+      "elapsed": 0.6935927867889404,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11491703987121582,
+        "projection": 0.006424665451049805,
+        "db": 0.36937522888183594
+      }
+    },
+    {
+      "keyword": "metal",
+      "success": true,
+      "elapsed": 0.7441399097442627,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.14165544509887695,
+        "projection": 0.00669097900390625,
+        "db": 0.3619828224182129
+      }
+    },
+    {
+      "keyword": "folk",
+      "success": true,
+      "elapsed": 0.6790401935577393,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10950732231140137,
+        "projection": 0.006715536117553711,
+        "db": 0.35597801208496094
+      }
+    },
+    {
+      "keyword": "r&b",
+      "success": true,
+      "elapsed": 0.7401838302612305,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.1575777530670166,
+        "projection": 0.006866455078125,
+        "db": 0.3596627712249756
+      }
+    },
+    {
+      "keyword": "soul",
+      "success": true,
+      "elapsed": 0.714094877243042,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.14423680305480957,
+        "projection": 0.006603240966796875,
+        "db": 0.3502933979034424
+      }
+    },
+    {
+      "keyword": "funk",
+      "success": true,
+      "elapsed": 0.7162411212921143,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.132246732711792,
+        "projection": 0.00692296028137207,
+        "db": 0.34733080863952637
+      }
+    },
+    {
+      "keyword": "disco",
+      "success": true,
+      "elapsed": 0.929426908493042,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13244342803955078,
+        "projection": 0.006523609161376953,
+        "db": 0.3574056625366211
+      }
+    },
+    {
+      "keyword": "techno",
+      "success": true,
+      "elapsed": 0.7565097808837891,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10822367668151855,
+        "projection": 0.006716012954711914,
+        "db": 0.3624286651611328
+      }
+    },
+    {
+      "keyword": "workout",
+      "success": true,
+      "elapsed": 0.7407028675079346,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10575509071350098,
+        "projection": 0.006758689880371094,
+        "db": 0.3506803512573242
+      }
+    },
+    {
+      "keyword": "study",
+      "success": true,
+      "elapsed": 0.8848590850830078,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12908291816711426,
+        "projection": 0.0066471099853515625,
+        "db": 0.35906219482421875
+      }
+    },
+    {
+      "keyword": "party",
+      "success": true,
+      "elapsed": 0.7048940658569336,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.139695405960083,
+        "projection": 0.006475925445556641,
+        "db": 0.3492298126220703
+      }
+    },
+    {
+      "keyword": "sleep",
+      "success": true,
+      "elapsed": 0.705996036529541,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13040566444396973,
+        "projection": 0.006819963455200195,
+        "db": 0.3500549793243408
+      }
+    },
+    {
+      "keyword": "driving",
+      "success": true,
+      "elapsed": 0.67618727684021,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10469174385070801,
+        "projection": 0.006624698638916016,
+        "db": 0.35979342460632324
+      }
+    },
+    {
+      "keyword": "cooking",
+      "success": true,
+      "elapsed": 1.0060992240905762,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.4323270320892334,
+        "projection": 0.007097005844116211,
+        "db": 0.3573637008666992
+      }
+    },
+    {
+      "keyword": "meditation",
+      "success": true,
+      "elapsed": 0.6682279109954834,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11555147171020508,
+        "projection": 0.006786346435546875,
+        "db": 0.3431997299194336
+      }
+    },
+    {
+      "keyword": "dance",
+      "success": true,
+      "elapsed": 0.7776651382446289,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11784791946411133,
+        "projection": 0.006738424301147461,
+        "db": 0.3477342128753662
+      }
+    },
+    {
+      "keyword": "running",
+      "success": true,
+      "elapsed": 0.8060779571533203,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.16031122207641602,
+        "projection": 0.006720781326293945,
+        "db": 0.35402607917785645
+      }
+    },
+    {
+      "keyword": "yoga",
+      "success": true,
+      "elapsed": 0.702089786529541,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12213802337646484,
+        "projection": 0.00667572021484375,
+        "db": 0.35884928703308105
+      }
+    },
+    {
+      "keyword": "focus",
+      "success": true,
+      "elapsed": 0.7426056861877441,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10476803779602051,
+        "projection": 0.008764266967773438,
+        "db": 0.349168062210083
+      }
+    },
+    {
+      "keyword": "chill",
+      "success": true,
+      "elapsed": 0.6748230457305908,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11002182960510254,
+        "projection": 0.007397174835205078,
+        "db": 0.3463408946990967
+      }
+    },
+    {
+      "keyword": "morning",
+      "success": true,
+      "elapsed": 0.7455780506134033,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11370038986206055,
+        "projection": 0.0066432952880859375,
+        "db": 0.34822535514831543
+      }
+    },
+    {
+      "keyword": "night",
+      "success": true,
+      "elapsed": 0.7494661808013916,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12442708015441895,
+        "projection": 0.006727695465087891,
+        "db": 0.34468650817871094
+      }
+    },
+    {
+      "keyword": "rain",
+      "success": true,
+      "elapsed": 0.692267894744873,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13557100296020508,
+        "projection": 0.006844997406005859,
+        "db": 0.34528422355651855
+      }
+    },
+    {
+      "keyword": "summer",
+      "success": true,
+      "elapsed": 0.6414570808410645,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10857319831848145,
+        "projection": 0.006627321243286133,
+        "db": 0.3515801429748535
+      }
+    },
+    {
+      "keyword": "piano",
+      "success": true,
+      "elapsed": 0.6775450706481934,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10587620735168457,
+        "projection": 0.006835222244262695,
+        "db": 0.3564484119415283
+      }
+    },
+    {
+      "keyword": "guitar",
+      "success": true,
+      "elapsed": 0.8788940906524658,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.17115426063537598,
+        "projection": 0.007713794708251953,
+        "db": 0.34784936904907227
+      }
+    },
+    {
+      "keyword": "drums",
+      "success": true,
+      "elapsed": 0.8090577125549316,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12292814254760742,
+        "projection": 0.006804943084716797,
+        "db": 0.3627743721008301
+      }
+    },
+    {
+      "keyword": "violin",
+      "success": true,
+      "elapsed": 0.6676192283630371,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13443946838378906,
+        "projection": 0.006812095642089844,
+        "db": 0.35653209686279297
+      }
+    },
+    {
+      "keyword": "saxophone",
+      "success": true,
+      "elapsed": 0.6800601482391357,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12767291069030762,
+        "projection": 0.00681614875793457,
+        "db": 0.350114107131958
+      }
+    },
+    {
+      "keyword": "bass",
+      "success": true,
+      "elapsed": 0.7205288410186768,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13662171363830566,
+        "projection": 0.006548643112182617,
+        "db": 0.35506153106689453
+      }
+    },
+    {
+      "keyword": "synth",
+      "success": true,
+      "elapsed": 0.7783441543579102,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.141404390335083,
+        "projection": 0.0066335201263427734,
+        "db": 0.3531813621520996
+      }
+    },
+    {
+      "keyword": "flute",
+      "success": true,
+      "elapsed": 0.6855850219726562,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12658357620239258,
+        "projection": 0.0071070194244384766,
+        "db": 0.3491249084472656
+      }
+    },
+    {
+      "keyword": "acoustic",
+      "success": true,
+      "elapsed": 0.8310520648956299,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12391042709350586,
+        "projection": 0.006808757781982422,
+        "db": 0.3444788455963135
+      }
+    },
+    {
+      "keyword": "instrumental",
+      "success": true,
+      "elapsed": 0.6894559860229492,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12452888488769531,
+        "projection": 0.006727933883666992,
+        "db": 0.35587096214294434
+      }
+    },
+    {
+      "keyword": "vocal",
+      "success": true,
+      "elapsed": 0.7252058982849121,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.1460425853729248,
+        "projection": 0.006670236587524414,
+        "db": 0.35303735733032227
+      }
+    },
+    {
+      "keyword": "orchestral",
+      "success": true,
+      "elapsed": 0.6760377883911133,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.0972280502319336,
+        "projection": 0.006598949432373047,
+        "db": 0.34819841384887695
+      }
+    },
+    {
+      "keyword": "beat",
+      "success": true,
+      "elapsed": 0.6637070178985596,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10262274742126465,
+        "projection": 0.0068492889404296875,
+        "db": 0.34752893447875977
+      }
+    },
+    {
+      "keyword": "melody",
+      "success": true,
+      "elapsed": 0.6417648792266846,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11987566947937012,
+        "projection": 0.0066070556640625,
+        "db": 0.3485536575317383
+      }
+    },
+    {
+      "keyword": "harmony",
+      "success": true,
+      "elapsed": 0.6598341464996338,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10527515411376953,
+        "projection": 0.006991863250732422,
+        "db": 0.34136009216308594
+      }
+    },
+    {
+      "keyword": "rhythm",
+      "success": true,
+      "elapsed": 0.6757161617279053,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12156534194946289,
+        "projection": 0.006655693054199219,
+        "db": 0.3455076217651367
+      }
+    },
+    {
+      "keyword": "80s",
+      "success": true,
+      "elapsed": 0.7189488410949707,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10924768447875977,
+        "projection": 0.0067441463470458984,
+        "db": 0.34902405738830566
+      }
+    },
+    {
+      "keyword": "90s",
+      "success": true,
+      "elapsed": 0.8148829936981201,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11961007118225098,
+        "projection": 0.0067675113677978516,
+        "db": 0.3570094108581543
+      }
+    },
+    {
+      "keyword": "retro",
+      "success": true,
+      "elapsed": 0.9532341957092285,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11913490295410156,
+        "projection": 0.00681757926940918,
+        "db": 0.34802842140197754
+      }
+    },
+    {
+      "keyword": "modern",
+      "success": true,
+      "elapsed": 0.7476611137390137,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.09556007385253906,
+        "projection": 0.006542205810546875,
+        "db": 0.34479713439941406
+      }
+    },
+    {
+      "keyword": "vintage",
+      "success": true,
+      "elapsed": 0.8171041011810303,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.15475082397460938,
+        "projection": 0.006651163101196289,
+        "db": 0.34371161460876465
+      }
+    },
+    {
+      "keyword": "contemporary",
+      "success": true,
+      "elapsed": 0.7405860424041748,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.1269373893737793,
+        "projection": 0.006780385971069336,
+        "db": 0.34515976905822754
+      }
+    },
+    {
+      "keyword": "classic",
+      "success": true,
+      "elapsed": 0.6624491214752197,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10049247741699219,
+        "projection": 0.006702899932861328,
+        "db": 0.34447431564331055
+      }
+    },
+    {
+      "keyword": "new",
+      "success": true,
+      "elapsed": 0.7541930675506592,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12170243263244629,
+        "projection": 0.006955862045288086,
+        "db": 0.4249839782714844
+      }
+    },
+    {
+      "keyword": "beatles",
+      "success": true,
+      "elapsed": 0.9015789031982422,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11435532569885254,
+        "projection": 0.007416963577270508,
+        "db": 0.3786122798919678
+      }
+    },
+    {
+      "keyword": "queen",
+      "success": true,
+      "elapsed": 0.7865679264068604,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.14866256713867188,
+        "projection": 0.006623029708862305,
+        "db": 0.35788846015930176
+      }
+    },
+    {
+      "keyword": "elvis",
+      "success": true,
+      "elapsed": 0.8159909248352051,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12213349342346191,
+        "projection": 0.006605863571166992,
+        "db": 0.35244202613830566
+      }
+    },
+    {
+      "keyword": "madonna",
+      "success": true,
+      "elapsed": 0.7787520885467529,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10110902786254883,
+        "projection": 0.006932735443115234,
+        "db": 0.3480343818664551
+      }
+    },
+    {
+      "keyword": "michael jackson",
+      "success": true,
+      "elapsed": 0.8807079792022705,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.1369335651397705,
+        "projection": 0.006591320037841797,
+        "db": 0.357898473739624
+      }
+    },
+    {
+      "keyword": "led zeppelin",
+      "success": true,
+      "elapsed": 0.9399349689483643,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.09840035438537598,
+        "projection": 0.006819486618041992,
+        "db": 0.43122076988220215
+      }
+    },
+    {
+      "keyword": "pink floyd",
+      "success": true,
+      "elapsed": 0.9497380256652832,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.16468358039855957,
+        "projection": 0.0067539215087890625,
+        "db": 0.4023935794830322
+      }
+    },
+    {
+      "keyword": "david bowie",
+      "success": true,
+      "elapsed": 0.7517690658569336,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.14444327354431152,
+        "projection": 0.006817340850830078,
+        "db": 0.35320329666137695
+      }
+    },
+    {
+      "keyword": "nirvana",
+      "success": true,
+      "elapsed": 0.9468281269073486,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.2835879325866699,
+        "projection": 0.009289264678955078,
+        "db": 0.3547384738922119
+      }
+    },
+    {
+      "keyword": "radiohead",
+      "success": true,
+      "elapsed": 0.7863719463348389,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.14879703521728516,
+        "projection": 0.007136821746826172,
+        "db": 0.34341955184936523
+      }
+    },
+    {
+      "keyword": "coldplay",
+      "success": true,
+      "elapsed": 0.7287068367004395,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12232375144958496,
+        "projection": 0.006839275360107422,
+        "db": 0.35326504707336426
+      }
+    },
+    {
+      "keyword": "imagine dragons",
+      "success": true,
+      "elapsed": 0.7951791286468506,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10547327995300293,
+        "projection": 0.00696873664855957,
+        "db": 0.3444335460662842
+      }
+    },
+    {
+      "keyword": "maroon 5",
+      "success": true,
+      "elapsed": 0.7796847820281982,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.14904522895812988,
+        "projection": 0.007020235061645508,
+        "db": 0.3525197505950928
+      }
+    },
+    {
+      "keyword": "사랑",
+      "success": true,
+      "elapsed": 0.9484260082244873,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.1495821475982666,
+        "projection": 0.010946273803710938,
+        "db": 0.35434889793395996
+      }
+    },
+    {
+      "keyword": "이별",
+      "success": true,
+      "elapsed": 0.7026078701019287,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13582658767700195,
+        "projection": 0.006932258605957031,
+        "db": 0.3498070240020752
+      }
+    },
+    {
+      "keyword": "행복",
+      "success": true,
+      "elapsed": 0.6809542179107666,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10215330123901367,
+        "projection": 0.006889820098876953,
+        "db": 0.3615074157714844
+      }
+    },
+    {
+      "keyword": "슬픔",
+      "success": true,
+      "elapsed": 0.6971390247344971,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13451743125915527,
+        "projection": 0.0069234371185302734,
+        "db": 0.3588683605194092
+      }
+    },
+    {
+      "keyword": "희망",
+      "success": true,
+      "elapsed": 0.7404139041900635,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11828017234802246,
+        "projection": 0.006712675094604492,
+        "db": 0.35091137886047363
+      }
+    },
+    {
+      "keyword": "그리움",
+      "success": true,
+      "elapsed": 0.6873180866241455,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12429952621459961,
+        "projection": 0.0067212581634521484,
+        "db": 0.3445920944213867
+      }
+    },
+    {
+      "keyword": "추억",
+      "success": true,
+      "elapsed": 0.7787680625915527,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12681865692138672,
+        "projection": 0.006894350051879883,
+        "db": 0.3625972270965576
+      }
+    },
+    {
+      "keyword": "여행",
+      "success": true,
+      "elapsed": 0.6815290451049805,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.1540966033935547,
+        "projection": 0.006733894348144531,
+        "db": 0.3567056655883789
+      }
+    },
+    {
+      "keyword": "봄",
+      "success": true,
+      "elapsed": 0.7155179977416992,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13652873039245605,
+        "projection": 0.0069675445556640625,
+        "db": 0.35291051864624023
+      }
+    },
+    {
+      "keyword": "가을",
+      "success": true,
+      "elapsed": 0.7567718029022217,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11134600639343262,
+        "projection": 0.007234334945678711,
+        "db": 0.36176228523254395
+      }
+    },
+    {
+      "keyword": "겨울",
+      "success": true,
+      "elapsed": 0.6528339385986328,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13366913795471191,
+        "projection": 0.006889820098876953,
+        "db": 0.3515200614929199
+      }
+    },
+    {
+      "keyword": "비",
+      "success": true,
+      "elapsed": 0.7212090492248535,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.16150188446044922,
+        "projection": 0.0066034793853759766,
+        "db": 0.34930849075317383
+      }
+    },
+    {
+      "keyword": "바다",
+      "success": true,
+      "elapsed": 0.7654578685760498,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.12240409851074219,
+        "projection": 0.006621599197387695,
+        "db": 0.3482840061187744
+      }
+    },
+    {
+      "keyword": "밤",
+      "success": true,
+      "elapsed": 0.7099819183349609,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13058209419250488,
+        "projection": 0.006946563720703125,
+        "db": 0.35416531562805176
+      }
+    },
+    {
+      "keyword": "별",
+      "success": true,
+      "elapsed": 0.699772834777832,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.10198426246643066,
+        "projection": 0.006653308868408203,
+        "db": 0.345412015914917
+      }
+    },
+    {
+      "keyword": "달",
+      "success": true,
+      "elapsed": 0.6946606636047363,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13408327102661133,
+        "projection": 0.00681614875793457,
+        "db": 0.3411519527435303
+      }
+    },
+    {
+      "keyword": "love song",
+      "success": true,
+      "elapsed": 0.7086570262908936,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.14520931243896484,
+        "projection": 0.0068590641021728516,
+        "db": 0.3549520969390869
+      }
+    },
+    {
+      "keyword": "party music",
+      "success": true,
+      "elapsed": 0.9150938987731934,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.14259076118469238,
+        "projection": 0.0069806575775146484,
+        "db": 0.347736120223999
+      }
+    },
+    {
+      "keyword": "sad ballad",
+      "success": true,
+      "elapsed": 0.7254729270935059,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.1665782928466797,
+        "projection": 0.0071070194244384766,
+        "db": 0.34897899627685547
+      }
+    },
+    {
+      "keyword": "upbeat pop",
+      "success": true,
+      "elapsed": 0.6599621772766113,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13558053970336914,
+        "projection": 0.006811857223510742,
+        "db": 0.3457067012786865
+      }
+    },
+    {
+      "keyword": "smooth jazz",
+      "success": true,
+      "elapsed": 0.7458670139312744,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.147186279296875,
+        "projection": 0.007134437561035156,
+        "db": 0.34869956970214844
+      }
+    },
+    {
+      "keyword": "hard rock",
+      "success": true,
+      "elapsed": 0.8495688438415527,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.21477651596069336,
+        "projection": 0.0066492557525634766,
+        "db": 0.34237146377563477
+      }
+    },
+    {
+      "keyword": "indie folk",
+      "success": true,
+      "elapsed": 0.7443888187408447,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.11864662170410156,
+        "projection": 0.006632328033447266,
+        "db": 0.3407318592071533
+      }
+    },
+    {
+      "keyword": "ambient music",
+      "success": true,
+      "elapsed": 0.7946188449859619,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.1394803524017334,
+        "projection": 0.006682872772216797,
+        "db": 0.3451557159423828
+      }
+    },
+    {
+      "keyword": "latin dance",
+      "success": true,
+      "elapsed": 0.7882049083709717,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.15741872787475586,
+        "projection": 0.006937742233276367,
+        "db": 0.3434145450592041
+      }
+    },
+    {
+      "keyword": "gospel music",
+      "success": true,
+      "elapsed": 0.7060849666595459,
+      "num_results": 10,
+      "status_code": 200,
+      "timings": {
+        "openai": 0.13509154319763184,
+        "projection": 0.006776094436645508,
+        "db": 0.34886598587036133
+      }
+    }
+  ]
+}
