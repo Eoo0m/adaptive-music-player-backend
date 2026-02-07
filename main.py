@@ -146,21 +146,36 @@ async def keep_alive_ping():
 
     while True:
         try:
-            # 10분마다 ping (DB + OpenAI)
+            # 10분마다 ping (OpenAI + CLIP + DB 벡터 검색)
             await asyncio.sleep(600)  # 10분 = 600초
 
             logger.debug("🏓 Keep-alive ping...")
 
-            # DB ping (무료)
-            _ = supabase.table("new_playlists").select("playlist_id").limit(1).execute()
-
             # OpenAI ping (저렴한 small 모델 사용)
-            _ = openai_client.embeddings.create(
+            ping_embedding = openai_client.embeddings.create(
                 model="text-embedding-3-small",
                 input="ping"
-            )
+            ).data[0].embedding
 
-            logger.debug("✅ Keep-alive ping successful")
+            # CLIP projection ping (3072 → 512 차원)
+            # text-embedding-3-large 크기로 패딩 (3072차원)
+            ping_embedding_padded = ping_embedding + [0.0] * (3072 - len(ping_embedding))
+            ping_tensor = torch.tensor(ping_embedding_padded, dtype=torch.float32).unsqueeze(0).to(device)
+            with torch.no_grad():
+                ping_projected = playlist_clip_model.caption_proj(ping_tensor)
+                ping_list = ping_projected.cpu().numpy()[0].tolist()
+
+            # DB 벡터 검색 ping (실제 쿼리로 캐시 유지)
+            _ = supabase.rpc(
+                "search_tracks_by_keyword_fast",
+                {
+                    "query_embedding": ping_list,
+                    "playlist_count": 10,  # 가벼운 쿼리
+                    "track_count": 5
+                }
+            ).execute()
+
+            logger.debug("✅ Keep-alive ping successful (OpenAI + CLIP + DB)")
 
         except asyncio.CancelledError:
             logger.info("🛑 Keep-alive task cancelled")
@@ -189,13 +204,18 @@ async def startup_event():
         warmup_start = time.time()
         test_tensor = torch.tensor(test_embedding, dtype=torch.float32).unsqueeze(0).to(device)
         with torch.no_grad():
-            _ = playlist_clip_model.caption_proj(test_tensor)
+            projected_embedding = playlist_clip_model.caption_proj(test_tensor)
+            projected_list = projected_embedding.cpu().numpy()[0].tolist()
         logger.info(f"  ✅ CLIP projection warmed up ({time.time() - warmup_start:.2f}s)")
 
-        # 3. 데이터베이스 워밍업 (간단한 쿼리)
-        logger.info("  ⏳ Warming up database connection...")
+        # 3. 데이터베이스 워밍업 (실제 벡터 검색으로 캐시 준비)
+        logger.info("  ⏳ Warming up database (vector search)...")
         warmup_start = time.time()
-        _ = supabase.table("new_playlists").select("playlist_id").limit(1).execute()
+        _ = search_tracks_by_keyword_fast_with_retry(
+            query_embedding=projected_list,
+            playlist_count=50,
+            track_count=10
+        )
         logger.info(f"  ✅ Database warmed up ({time.time() - warmup_start:.2f}s)")
 
         logger.info("🚀 Warmup complete - server ready!")
