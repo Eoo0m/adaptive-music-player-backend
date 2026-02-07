@@ -260,7 +260,7 @@ def get_openai_embedding_with_retry(keyword: str):
         embedding_response = openai_client.embeddings.create(
             model="text-embedding-3-large",
             input=[keyword],
-            timeout=30.0
+            timeout=10.0  # 30s → 10s로 줄여서 빠르게 실패하고 재시도
         )
 
         elapsed = time.time() - start_time
@@ -832,7 +832,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
         try:
             response = search_tracks_by_keyword_fast_with_retry(
                 query_embedding=projected_embedding,
-                playlist_count=100,
+                playlist_count=50,  # 100 → 50으로 줄여서 속도 개선
                 track_count=10
             )
             logger.info(f"DB processing took {time.time() - t_db:.2f}s")
