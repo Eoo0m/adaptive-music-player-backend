@@ -21,6 +21,7 @@ from datetime import datetime
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from openai import APIError, APIConnectionError, RateLimitError, Timeout
 import asyncio
+import random
 
 # 로깅 설정
 logging.basicConfig(
