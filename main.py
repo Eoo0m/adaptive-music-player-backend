@@ -163,6 +163,12 @@ async def keep_alive_ping():
                 }
             ).execute()
 
+            # 제목 검색 ping (pg_trgm 캐시 유지)
+            _ = supabase.rpc(
+                "search_tracks_by_title",
+                {"query_text": "test", "match_count": 5}
+            ).execute()
+
             logger.debug("✅ DB Keep-alive ping successful")
 
         except asyncio.CancelledError:
@@ -206,6 +212,17 @@ async def startup_event():
                 }
             ).execute()
         logger.info(f"  ✅ Database fully warmed up ({time.time() - warmup_start:.2f}s, 5 queries)")
+
+        # 3. 제목 검색 워밍업 (prefix + pg_trgm 인덱스 로드)
+        logger.info("  ⏳ Warming up title search (prefix + pg_trgm)...")
+        title_warmup_start = time.time()
+        warmup_queries = ["love", "sum", "night", "xyz123notfound"]  # prefix 매칭 + 폴백 테스트
+        for query in warmup_queries:
+            _ = supabase.rpc(
+                "search_tracks_by_title",
+                {"query_text": query, "match_count": 10}
+            ).execute()
+        logger.info(f"  ✅ Title search warmed up ({time.time() - title_warmup_start:.2f}s, {len(warmup_queries)} queries)")
 
         # Keep-Alive 백그라운드 작업 시작
         keep_alive_task = asyncio.create_task(keep_alive_ping())
