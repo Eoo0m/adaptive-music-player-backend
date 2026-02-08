@@ -742,11 +742,12 @@ async def recommend(request: RecommendRequest):
         raise HTTPException(status_code=400, detail="Missing track_key")
 
     try:
+        # 50곡 가져오기 (프론트엔드는 14곡만 표시)
         response = supabase.rpc(
             "match_tracks_by_key",
             {
                 "input_track_key": request.track_key,
-                "match_count": request.num_recommendations,
+                "match_count": 50,  # 고정 50곡
             },
         ).execute()
 
@@ -754,9 +755,9 @@ async def recommend(request: RecommendRequest):
             raise HTTPException(status_code=500, detail="Recommendation failed")
 
         # 결과 포맷 변환
-        recommendations = []
+        all_recommendations = []
         for item in response.data:
-            recommendations.append({
+            all_recommendations.append({
                 "track_id": item["id"],
                 "track_key": item["track_key"],
                 "track": item["title"],
@@ -767,7 +768,15 @@ async def recommend(request: RecommendRequest):
                 "cover_image_url": item.get("cover_image_url"),
             })
 
-        logger.info(f"Recommend: {len(recommendations)} tracks for '{request.track_key}'")
+        # 랜덤하게 14곡 선택
+        import random
+        selected_count = min(request.num_recommendations, len(all_recommendations))
+        recommendations = random.sample(all_recommendations, selected_count) if len(all_recommendations) > selected_count else all_recommendations
+
+        # 로그에 선택된 곡 정보 출력
+        selected_titles = [f"{r['track']} - {r['artist']}" for r in recommendations]
+        logger.info(f"Recommend: {len(recommendations)} tracks selected from {len(all_recommendations)} for '{request.track_key}'")
+        logger.info(f"Selected tracks: {', '.join(selected_titles[:5])}{'...' if len(selected_titles) > 5 else ''}")
 
         return {
             "recommendations": recommendations,
