@@ -433,17 +433,22 @@ def search_tracks_by_keyword_fast_with_retry(query_embedding: list, playlist_cou
     """
     logger.info(f"🔄 Calling Supabase RPC: search_tracks_by_keyword_fast")
     start_time = time.time()
-    response = supabase.rpc(
-        "search_tracks_by_keyword_fast",
-        {
-            "query_embedding": query_embedding,
-            "playlist_count": playlist_count,
-            "track_count": track_count
-        }
-    ).execute()
-    elapsed = time.time() - start_time
-    logger.info(f"✅ search_tracks_by_keyword_fast completed ({elapsed:.2f}s)")
-    return response
+    try:
+        response = supabase.rpc(
+            "search_tracks_by_keyword_fast",
+            {
+                "query_embedding": query_embedding,
+                "playlist_count": playlist_count,
+                "track_count": track_count
+            }
+        ).execute()
+        elapsed = time.time() - start_time
+        logger.info(f"✅ search_tracks_by_keyword_fast completed ({elapsed:.2f}s)")
+        return response
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.warning(f"⚠️ RPC attempt failed after {elapsed:.2f}s: {type(e).__name__}: {str(e)}")
+        raise
 
 
 @retry(
