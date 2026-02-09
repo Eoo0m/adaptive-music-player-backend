@@ -53,15 +53,10 @@ load_dotenv()
 APP_VERSION = datetime.now().strftime("%Y%m%d_%H%M%S")
 logger.info(f"🚀 Starting Adaptive Music Player Backend - Version: {APP_VERSION}")
 
-# Supabase 클라이언트 (타임아웃 30초로 설정)
+# Supabase 클라이언트
 supabase: Client = create_client(
     os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_KEY"),
-    options={
-        "postgrest": {
-            "timeout": 30  # 30초 타임아웃
-        }
-    }
+    os.getenv("SUPABASE_KEY")
 )
 
 # OpenAI 클라이언트
