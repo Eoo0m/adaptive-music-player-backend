@@ -53,8 +53,16 @@ load_dotenv()
 APP_VERSION = datetime.now().strftime("%Y%m%d_%H%M%S")
 logger.info(f"🚀 Starting Adaptive Music Player Backend - Version: {APP_VERSION}")
 
-# Supabase 클라이언트
-supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+# Supabase 클라이언트 (타임아웃 30초로 설정)
+supabase: Client = create_client(
+    os.getenv("SUPABASE_URL"),
+    os.getenv("SUPABASE_KEY"),
+    options={
+        "postgrest": {
+            "timeout": 30  # 30초 타임아웃
+        }
+    }
+)
 
 # OpenAI 클라이언트
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -224,6 +232,21 @@ async def startup_event():
                 {"query_text": query, "match_count": 10}
             ).execute()
         logger.info(f"  ✅ Title search warmed up ({time.time() - title_warmup_start:.2f}s, {len(warmup_queries)} queries)")
+
+        # 4. 키워드 검색 전체 파이프라인 워밍업 (실제 엔드포인트 호출)
+        logger.info("  ⏳ Warming up keyword search endpoint...")
+        keyword_warmup_start = time.time()
+        try:
+            # KeywordSearchRequest는 startup보다 나중에 정의되므로,
+            # 수동으로 간단한 요청 객체 생성
+            class _WarmupReq:
+                keyword = "love"
+
+            _ = await search_by_keyword(_WarmupReq())
+
+            logger.info(f"  ✅ Keyword search endpoint warmed up ({time.time() - keyword_warmup_start:.2f}s)")
+        except Exception as e:
+            logger.warning(f"  ⚠️  Keyword warmup failed (non-critical): {str(e)}")
 
         # Keep-Alive 백그라운드 작업 시작
         keep_alive_task = asyncio.create_task(keep_alive_ping())
@@ -748,7 +771,7 @@ async def recommend(request: RecommendRequest):
             "match_tracks_by_key",
             {
                 "input_track_key": request.track_key,
-                "match_count": 50,  # 고정 50곡
+                "match_count": 50,
             },
         ).execute()
 
@@ -769,8 +792,7 @@ async def recommend(request: RecommendRequest):
                 "cover_image_url": item.get("cover_image_url"),
             })
 
-        # 랜덤하게 14곡 선택
-        import random
+        # 랜덤하게 선택
         selected_count = min(request.num_recommendations, len(all_recommendations))
         recommendations = random.sample(all_recommendations, selected_count) if len(all_recommendations) > selected_count else all_recommendations
 
