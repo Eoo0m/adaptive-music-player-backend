@@ -295,6 +295,28 @@ app.add_middleware(
     expose_headers=["*"],  # 모든 응답 헤더 노출
 )
 
+# Warmup endpoint (유저 세션 시작 시 프론트엔드에서 호출)
+@app.post("/warmup")
+async def warmup():
+    """유저 세션 시작 시 백엔드 워밍업"""
+    logger.info("🔥 Warmup requested by frontend")
+
+    # 백그라운드에서 키워드 검색 워밍업 (응답 기다리지 않음)
+    async def _run_warmup():
+        try:
+            class _WarmupReq:
+                keyword = "love"
+            await search_by_keyword(_WarmupReq())
+            logger.info("✅ Warmup completed")
+        except Exception as e:
+            logger.warning(f"⚠️ Warmup failed: {str(e)}")
+
+    # 백그라운드 태스크로 실행
+    asyncio.create_task(_run_warmup())
+
+    # 즉시 응답 반환 (프론트는 기다리지 않음)
+    return {"status": "warmup_started"}
+
 # Health check endpoint (배포 확인용)
 @app.get("/")
 async def root():
