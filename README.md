@@ -8,8 +8,6 @@ https://dynplayer.win
 - title/artist 검색, keyword 검색 기능
 - 앨범 커버 클릭 시 해당 곡과 유사한 곡 추천, 두번 클릭 시 재생사이트로 이동
 
-![video_3x](https://github.com/user-attachments/assets/c6fdbc9d-1f6a-4fa3-aa49-c39b7634b802)
-
 ![demo](https://github.com/user-attachments/assets/46c70881-964d-4a1d-ba61-4b214a72d79f)
 
 
