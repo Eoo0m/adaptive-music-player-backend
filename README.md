@@ -11,7 +11,6 @@ https://dynplayer.win
 ![video_3x](https://github.com/user-attachments/assets/c6fdbc9d-1f6a-4fa3-aa49-c39b7634b802)
 
 ---
-
 # engagement를 어떻게 올릴 것인가?
 ## UI
 
