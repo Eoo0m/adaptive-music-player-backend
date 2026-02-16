@@ -18,7 +18,6 @@ https://dynplayer.win
 - Track Logs: ~2.5M
 - Filtered Tracks: ~80K (5+ co-occurrence)
 
----
 
 ## **Modeling**
 
@@ -33,7 +32,6 @@ https://dynplayer.win
 - Playlist title embedding
 - Text ↔ Playlist contrastive alignment (CLIP-inspired)
 
----
 
 ## **Key Results**
 
@@ -47,8 +45,6 @@ https://dynplayer.win
 |  | Recall@20 0.3784 |
 
 
-
----
 
 ## **System Architecture**
 
@@ -66,8 +62,6 @@ https://dynplayer.win
 - Text embedding → Playlist projection
 - Playlist retrieval → Track ranking
 
----
-
 # **engagement를 어떻게 올릴 것인가?**
 
 ## **UI**
@@ -78,8 +72,6 @@ https://dynplayer.win
 - 새로운 곡 등장 시 애니메이션 효과
     - 추천 결과가 단절적으로 나타나는 것이 아니라, 이전 곡과의 유사도 기반 연결로 등장한다는 인식을 제공
     - discovery 과정에서의 몰입감 및 탐색 지속 시간 증가 목적
-
----
 
 ## **알고리즘**
 
@@ -114,8 +106,6 @@ https://dynplayer.win
     - pairwise co-save likelihood 복원 성능 평가
     - metric: Recall, NDCG
 
----
-
 ### **keyword**
 
 - 키워드 검색시 쿼리와 유사한 플레이리스트 100개 추출하여 유사도 × 등장 빈도로 트랙 추천
@@ -137,8 +127,6 @@ https://dynplayer.win
 	•	Retrieval → Ranking: Retrieval 후보군에 대해 ranking 모델 설계 및 실험 진행중(DCN v2)
 	•	Session-based Recommendation: 사용자 세션 기반 추천 모델 실험 진행중
 
-
----
 ## Research References
 
 본 시스템의 representation learning 및 retrieval modeling 설계는  
@@ -149,7 +137,6 @@ https://dynplayer.win
 - **[Item2Vec](https://arxiv.org/abs/1603.04259)** — Co-occurrence 기반 item embedding 개념 참고
 - **[Contrastive Learning on the Hypersphere](https://arxiv.org/abs/2005.10242)** — Uniformity regularization 설계 참고
 
----
 
 # Experiment
 
@@ -207,7 +194,6 @@ $$
 -> uniformity loss 적용시, 인기곡과 비인기곡의 차이 감소, 성능도 상승
 
 
----
 
 ## 텍스트 검색으로 플레이리스트를 찾아도되는데 굳이 임베딩을 학습하는 이유?
 → 텍스트로 나타낼 수 없는 음악적 특성 반영
@@ -227,7 +213,7 @@ $$
 | 9 | 0.6575 | 카리나가 좋아하는 외힙 플리 | 63AmXMQbA09OwYzs5PiOty |
 | 10 | 0.6575 | Unknown | 0vIm6DBpjcaYAuwGQCQda4 |
 
----
+
 
 ### **query: 발라드 (Top 10 Playlists)**
 
@@ -244,7 +230,7 @@ $$
 | 9 | 0.7417 | 술 마실 때 틀려고 만든 플리 | 2tBCPWD3hyfJZoSSPcxhDS |
 | 10 | 0.7399 | 엠씨더맥스 플레이리스트 | 3ENgMmp2wXEkkR90Xmq6JZ |
 
----
+
 
 ### **query: cozy pop (Top 10 Playlists)**
 
@@ -261,5 +247,5 @@ $$
 | 9 | 0.5558 | calm songs to relax my anxietyy | 3l6b0zuXjgyPxLK6PIAqED |
 | 10 | 0.5522 | Winter vibes ⋆⁺₊❅. | 15lesHzhv9X0fbEWztEYon |
 
----
+
 -> 텍스트의 의미가 유사한 플레이리스트만 검색되는 것이 아니라 장르/무드/특성 등이 유사한 음악이 검색되는 것을 볼 수 있다.
