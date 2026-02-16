@@ -362,14 +362,6 @@ class RecommendAverageRequest(BaseModel):
     num_recommendations: Optional[int] = 5
 
 
-class FindSpotifyTracksRequest(BaseModel):
-    tracks: List[dict]
-    access_token: str
-
-
-class RecommendDiverseRequest(BaseModel):
-    spotify_track: dict
-    access_token: str
 
 
 class ListeningLogRequest(BaseModel):
@@ -924,54 +916,6 @@ async def recommend_average(request: RecommendAverageRequest):
         )
 
 
-@app.post("/find-spotify-tracks")
-async def find_spotify_tracks(request: FindSpotifyTracksRequest):
-    """추천 결과를 Spotify 트랙으로 매핑"""
-    if not request.access_token or not request.tracks:
-        raise HTTPException(status_code=400, detail="Missing access token or tracks")
-
-    try:
-        out = []
-        if len(request.tracks) == 0:
-            return {"spotify_tracks": []}
-
-        # 유사도 순서 유지 (상위 10개만)
-        top_tracks = request.tracks[:10]
-
-        async with httpx.AsyncClient() as client:
-            for track in top_tracks:
-                track_name = track.get("track") or track.get("track_name")
-                artist_name = track.get("artist") or track.get("artist_name")
-
-                if not track_name or not artist_name:
-                    continue
-
-                q = f'track:"{track_name}" artist:"{artist_name}"'
-                response = await client.get(
-                    f"https://api.spotify.com/v1/search?q={q}&type=track&limit=1",
-                    headers={"Authorization": f"Bearer {request.access_token}"},
-                )
-
-                if response.status_code == 200:
-                    data = response.json()
-                    items = data.get("tracks", {}).get("items", [])
-                    if items and len(items) > 0:
-                        item = items[0]
-                        out.append({
-                            **track,
-                            "spotify_track": item,
-                            "uri": item["uri"],
-                            "preview_url": item.get("preview_url"),
-                        })
-
-        logger.info(f"Find Spotify tracks: {len(out)}/{len(top_tracks)} matched")
-        return {"spotify_tracks": out}
-
-    except Exception as e:
-        logger.error(f"Find Spotify tracks error: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to find Spotify tracks: {str(e)}"
-        )
 
 
 # ============== Keyword Search ==============
