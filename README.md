@@ -39,7 +39,7 @@ https://dynplayer.win
     - embedding space density regularization 목적의 uniformity loss를 proxy로 추가
     - representation spread 확보 및 hubness 완화
     
-    → recall, ndcg 상승, 분포에서 쏠림현상 완화
+    → recall, ndcg 상승, 분포에서 쏠림현상 완화(자세한 실험 내용은 아래)
 
 ### **메트릭**
 
@@ -71,15 +71,10 @@ https://dynplayer.win
     - metric: Recall, NDCG
 ---
 ### Ongoing Experiments
-	•	Multimodal Track Embedding
-Audio(30s preview) + Lyrics + MF(Co-occurrence) concat 기반 임베딩 학습 진행중
-(약 80K 트랙 수집 및 전처리 단계)
-	•	Graph Embedding Extension
-Playlist–Track bipartite graph 기반 임베딩 추가 실험
-	•	Retrieval → Ranking Pipeline
-Retrieval 후보군에 대해 embedding fusion 기반 ranking 모델 설계 및 실험 진행중
-	•	Session-based Recommendation
-사용자 세션 시퀀스 기반 next-track 추천 모델 실험 진행중
+	•	Multimodal Track Embedding:Audio(30s preview) + Lyrics + MF(Co-occurrence) concat 기반 임베딩 학습 진행중 (약 80K 트랙 수집 및 전처리 단계)
+	•	Graph Embedding Extension: Playlist–Track bipartite graph 기반 임베딩 추가 실험
+	•	Retrieval → Ranking: Retrieval 후보군에 대해 ranking 모델 설계 및 실험 진행중(DCN v2)
+	•	Session-based Recommendation: 사용자 세션 기반 추천 모델 실험 진행중
 
 
 
