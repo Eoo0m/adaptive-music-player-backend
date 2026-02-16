@@ -13,7 +13,7 @@ https://dynplayer.win
 ---
 
 # engagement를 어떻게 올릴 것인가?
-## **UI**
+## UI
 
 - 재생권한이 없기에, 첫 곡을 검색 이후 그 곡과 유사한 곡을 계속해서 디깅할 수 있는 구조
     - 특정 곡을 seed로 하여 embedding space 상에서 인접한 곡들을 순차적으로 탐색하는 digging UX
@@ -25,7 +25,6 @@ https://dynplayer.win
 ---
 
 ## **알고리즘**
-
 ### **track**
 
 - 특정 트랙을 검색시에 그 곡과 유사한 곡 15개를 선정하여 제시
@@ -58,7 +57,6 @@ https://dynplayer.win
     - metric: Recall, NDCG
 
 ---
-
 ### **keyword**
 
 - 키워드 검색시 쿼리와 유사한 플레이리스트 100개 추출하여 유사도 × 등장 빈도로 트랙 추천
@@ -71,7 +69,6 @@ https://dynplayer.win
     - text query → playlist retrieval 성능 평가
     - semantic title understanding 및 playlist mapping 정확도 측정
     - metric: Recall, NDCG
-
 ---
 ### Ongoing Experiments
 	•	Multimodal Track Embedding
