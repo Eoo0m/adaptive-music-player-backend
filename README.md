@@ -12,9 +12,7 @@ https://dynplayer.win
 
 
 
-# **. engagement를 어떻게 올릴 것인가?**
-
----
+# **engagement를 어떻게 올릴 것인가?**
 
 ## **UI**
 
@@ -28,8 +26,6 @@ https://dynplayer.win
 ---
 
 ## **알고리즘**
-
----
 
 ### **track**
 
@@ -46,9 +42,6 @@ https://dynplayer.win
     - representation spread 확보 및 hubness 완화
     
     → recall, ndcg 상승, 분포에서 쏠림현상 완화
-    
-
----
 
 ### **메트릭**
 
@@ -73,9 +66,6 @@ https://dynplayer.win
     - playlist title text embedding(OpenAI embedding large) 활용
     - playlist title ↔ playlist track set 간 multimodal contrastive learning 구조로 정렬
     - text semantic과 track co-occurrence representation alignment 목적
-
----
-
 ### **메트릭**
 
 - 플레이리스트 타이틀 임베딩으로 플레이리스트 검색
