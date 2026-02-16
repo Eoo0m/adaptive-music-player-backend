@@ -15,6 +15,7 @@ https://dynplayer.win
 
 
 
+
 # **1. System Overview**
 ## **Dataset**
 
@@ -65,6 +66,9 @@ https://dynplayer.win
 
 - Text embedding → Playlist projection
 - Playlist retrieval → Track ranking
+
+
+
 
 # **2. engagement를 어떻게 올릴 것인가?**
 
@@ -140,6 +144,9 @@ https://dynplayer.win
 - **[CLIP](https://arxiv.org/abs/2103.00020)** — Text ↔ Embedding alignment 구조 설계 참고
 - **[Item2Vec](https://arxiv.org/abs/1603.04259)** — Co-occurrence 기반 item embedding 개념 참고
 - **[Contrastive Learning on the Hypersphere](https://arxiv.org/abs/2005.10242)** — Uniformity regularization 설계 참고
+
+
+
 
 
 # **3. Experiment**
