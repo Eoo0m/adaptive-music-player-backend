@@ -18,6 +18,12 @@ https://dynplayer.win
 
 
 # **1. System Overview**
+## **서비스 목적 & ML 구조화**
+
+플레이리스트 내 공동 출현 관계를 사용자의 implicit co-click interaction으로 간주하여 representation 학습에 활용
+
+-> 이를 통해 쿼리 트랙 기준으로 양성 집합이 softmax 분포에서 차지하는 확률 질량을 최대화하도록 학습
+
 ## **Dataset**
 
 - Spotify Playlist: ~60K
