@@ -10,9 +10,67 @@ https://dynplayer.win
 
 ![video_3x](https://github.com/user-attachments/assets/c6fdbc9d-1f6a-4fa3-aa49-c39b7634b802)
 
+
+
+## **Dataset**
+
+- Spotify Playlist: ~60K
+- Track Logs: ~2.5M
+- Filtered Tracks: ~80K (5+ co-occurrence)
+
 ---
-# engagement를 어떻게 올릴 것인가?
-## UI
+
+## **Modeling**
+
+### **Track Retrieval**
+
+- Co-occurrence graph embedding
+- Multipositive InfoNCE
+- Uniformity loss for hubness mitigation
+
+### **Keyword Search**
+
+- Playlist title embedding
+- Text ↔ Playlist contrastive alignment (CLIP-inspired)
+
+---
+
+## **Key Results**
+
+| **Task** | **Metric** |
+| --- | --- |
+| Playlist Completion | NDCG@10 0.2871 |
+|  | Recall@10 0.1919 |
+| Genre Linear Eval | Top-1 0.8177 |
+|  | Top-5 0.9751 |
+| Keyword Search | Recall@10 0.2693 |
+|  | Recall@20 0.3784 |
+
+---
+
+## **System Architecture**
+
+![image.png](attachment:a9e8637d-9a9a-4f09-b5fb-acc8758cb941:image.png)
+
+## **Core APIs**
+
+### **/recommend**
+
+- Track embedding similarity retrieval
+- Cosine + HNSW index
+
+### **/search-by-keyword**
+
+- Text embedding → Playlist projection
+- Playlist retrieval → Track ranking
+
+---
+
+# **engagement를 어떻게 올릴 것인가?**
+
+---
+
+## **UI**
 
 - 재생권한이 없기에, 첫 곡을 검색 이후 그 곡과 유사한 곡을 계속해서 디깅할 수 있는 구조
     - 특정 곡을 seed로 하여 embedding space 상에서 인접한 곡들을 순차적으로 탐색하는 digging UX
@@ -24,21 +82,22 @@ https://dynplayer.win
 ---
 
 ## **알고리즘**
+
 ### **track**
 
 - 특정 트랙을 검색시에 그 곡과 유사한 곡 15개를 선정하여 제시
-- 이때 트랙의 임베딩:
+- 모델링:
     - playlist 내 co-occurrence를 positive set으로 하여 multipositive InfoNCE를 활용하여 학습
-    - 동일 플레이리스트 내 공동 출현 확률 분포를 embedding 공간 거리로 근사하는 것이 목적
 - 목적:
-    - 특정 곡을 기준으로 동일 맥락에 존재하는 곡 집단을 retrieval 가능하도록 representation 학습
+    - 특정 곡을 기준으로  공동 청취 맥락에 속한 트랙 집합이 softmax 분포에서 차지하는 확률 질량을 최대화
 - 문제점: 인기곡(Hub) 쏠림 현상
     - playlist 등장 빈도가 높은 인기곡이 비인기곡에 비해 평균적인 유사도가 너무 높아 쏠림 현상 발생
 - 해결:
     - embedding space density regularization 목적의 uniformity loss를 proxy로 추가
     - representation spread 확보 및 hubness 완화
     
-    → recall, ndcg 상승, 분포에서 쏠림현상 완화(자세한 실험 내용은 아래)
+    → recall, ndcg 상승, 분포에서 쏠림현상 완화
+    
 
 ### **메트릭**
 
@@ -56,19 +115,21 @@ https://dynplayer.win
     - metric: Recall, NDCG
 
 ---
+
 ### **keyword**
 
 - 키워드 검색시 쿼리와 유사한 플레이리스트 100개 추출하여 유사도 × 등장 빈도로 트랙 추천
     - playlist title text embedding(OpenAI embedding large) 활용
-    - playlist title ↔ playlist track set 간 multimodal contrastive learning 구조로 정렬
-    - text semantic과 track co-occurrence representation alignment 목적
+    - 모델링:
+        - playlist title text embedding ↔ playlist embedding alignment(clip-insplired)
+
 ### **메트릭**
 
 - 플레이리스트 타이틀 임베딩으로 플레이리스트 검색
     - text query → playlist retrieval 성능 평가
     - semantic title understanding 및 playlist mapping 정확도 측정
     - metric: Recall, NDCG
----
+
 ### Ongoing Experiments
 
 	•	Multimodal Track Embedding:Audio(30s preview) + Lyrics + MF(Co-occurrence) concat 기반 임베딩 학습 진행중 (약 80K 트랙 수집 및 전처리 단계)
@@ -77,68 +138,7 @@ https://dynplayer.win
 	•	Session-based Recommendation: 사용자 세션 기반 추천 모델 실험 진행중
 
 
-
 ---
-## architecture
-
-<img width="391" height="224" alt="image" src="https://github.com/user-attachments/assets/8bb8a8ef-581c-42d1-b88a-ce78f3ede42c" />
-
-
-
-## 검색 기능
-
-### /search-songs — 제목 기반 검색
-	•	입력: query (곡 제목)
-	•	Supabase 함수 search_tracks_by_title 호출
-	•	유사 제목 10개 반환
-
-
-
-### /search-by-keyword — 키워드 기반 벡터 검색
-	•	OpenAI text-embedding-3-large → 3072차원 텍스트 임베딩 생성
-	•	playlist_clip_model 로 텍스트 → playlist 공간(512차원) projection
-	•	Supabase 함수 match_playlist_embeddings으로 가장 유사한 playlist TOP 50 조회
-	•	playlist 내 트랙들을 similarity × frequency 기반으로 랭킹
-	•	상위 10개 곡 반환
-
-
-
-### /find-spotify-tracks — 추천 결과 Spotify 매핑
-	•	추천된 트랙(title + artist) → Spotify Search API로 실제 트랙 매핑
-	•	Spotify track object, URI, preview_url 반환
-	•	음원 재생을 위한 필수 단계
-
-
-## 추천 기능
-
-### /recommend — 특정 트랙 기반 추천
-	•	입력: track_key
-	•	Supabase 함수 match_tracks_by_key
-→ pgvector 코사인 유사도로 가장 가까운 embedding N개 추천
-	•	결과는 /find-spotify-tracks 로 Spotify 트랙 정보 매핑하여 재생 가능하게 처리
-
-
-### clip_projection
-	•	Caption(text embedding 3072) → embedding 공간으로 projection하여 playlist caption - playlist embedding clip 학습
-	•	Residual block + GELU + LayerNorm 기반 MLP
-
-
-
-## DB 구조 (Supabase + pgvector)
-
-### playlists 테이블: 검색 쿼리와 비교를 위해 투영된 임베딩
-	•	playlist_id (PK)
-	•	track_ids (JSON array)
-	•	embedding (vector 512)
-
-### track_embeddings 테이블: 대조학습으로 생성된 트랙 임베딩
-	•	track_key
-	•	title, artist, album
-	•	embedding (vector 256)
-	•	pos_count 
-
----
-
 
 # Experiment
 
