@@ -10,10 +10,9 @@ https://dynplayer.win
 
 ![video_3x](https://github.com/user-attachments/assets/c6fdbc9d-1f6a-4fa3-aa49-c39b7634b802)
 
-
+---
 
 # **engagement를 어떻게 올릴 것인가?**
-
 ## **UI**
 
 - 재생권한이 없기에, 첫 곡을 검색 이후 그 곡과 유사한 곡을 계속해서 디깅할 수 있는 구조
