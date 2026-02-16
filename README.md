@@ -142,6 +142,7 @@ Retrieval 후보군에 대해 embedding fusion 기반 ranking 모델 설계 및 
 	•	embedding (vector 256)
 	•	pos_count 
 
+---
 
 
 # Experiment
