@@ -69,6 +69,8 @@ https://dynplayer.win
 - Playlist retrieval → Track ranking
 
 
+<br>
+<br>
 
 
 # **2. engagement를 어떻게 올릴 것인가?**
@@ -147,6 +149,8 @@ https://dynplayer.win
 - **[Contrastive Learning on the Hypersphere](https://arxiv.org/abs/2005.10242)** — Uniformity regularization 설계 참고
 
 
+<br>
+<br>
 
 
 
