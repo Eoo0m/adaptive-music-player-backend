@@ -141,13 +141,13 @@ https://dynplayer.win
 ---
 참고 
 
-simCLR:  Contrastive representation learning 배치 및 linear evaluation idea 참고
+- simCLR:  Contrastive representation learning 배치 및 linear evaluation idea 참고
 https://arxiv.org/abs/2002.05709
-CLIP: Text ↔ Embedding alignment 구조 설계 참고 
+- CLIP: Text ↔ Embedding alignment 구조 설계 참고 
 https://arxiv.org/abs/2103.00020
-Item2vec: Co-occurrence 기반 item embedding 개념 참고 
+- Item2vec: Co-occurrence 기반 item embedding 개념 참고 
 https://arxiv.org/abs/1603.04259
-Contrastive learning on the hypersphere: Uniformity regularization 및 embedding distribution 설계 참고
+- Contrastive learning on the hypersphere: Uniformity regularization 및 embedding distribution 설계 참고
 https://arxiv.org/abs/2005.10242
 
 ---
