@@ -46,6 +46,8 @@ https://dynplayer.win
 | Keyword Search | Recall@10 0.2693 |
 |  | Recall@20 0.3784 |
 
+
+
 ---
 
 ## **System Architecture**
@@ -135,6 +137,18 @@ https://dynplayer.win
 	•	Retrieval → Ranking: Retrieval 후보군에 대해 ranking 모델 설계 및 실험 진행중(DCN v2)
 	•	Session-based Recommendation: 사용자 세션 기반 추천 모델 실험 진행중
 
+
+---
+참고 
+
+simCLR:  Contrastive representation learning 배치 및 linear evaluation idea 참고
+https://arxiv.org/abs/2002.05709
+CLIP: Text ↔ Embedding alignment 구조 설계 참고 
+https://arxiv.org/abs/2103.00020
+Item2vec: Co-occurrence 기반 item embedding 개념 참고 
+https://arxiv.org/abs/1603.04259
+Contrastive learning on the hypersphere: Uniformity regularization 및 embedding distribution 설계 참고
+https://arxiv.org/abs/2005.10242
 
 ---
 
