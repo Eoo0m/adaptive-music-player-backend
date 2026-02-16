@@ -5,13 +5,17 @@
 
 https://dynplayer.win
 
-- title/artist 검색, keyword 검색 기능
-- 앨범 커버 클릭 시 해당 곡과 유사한 곡 추천, 두번 클릭 시 재생사이트로 이동
+	•	Title / Artist 검색
+	•	Keyword 기반 시맨틱 검색
+	•	앨범 커버 클릭 → 유사곡 Digging UX
+	•	더블 클릭 → 외부 재생 사이트 이동
 
 ![demo](https://github.com/user-attachments/assets/46c70881-964d-4a1d-ba61-4b214a72d79f)
 
 
-# **System Overview**
+
+
+# **1. System Overview**
 ## **Dataset**
 
 - Spotify Playlist: ~60K
@@ -62,7 +66,7 @@ https://dynplayer.win
 - Text embedding → Playlist projection
 - Playlist retrieval → Track ranking
 
-# **engagement를 어떻게 올릴 것인가?**
+# **2. engagement를 어떻게 올릴 것인가?**
 
 ## **UI**
 
@@ -138,7 +142,7 @@ https://dynplayer.win
 - **[Contrastive Learning on the Hypersphere](https://arxiv.org/abs/2005.10242)** — Uniformity regularization 설계 참고
 
 
-# Experiment
+# **3. Experiment**
 
 ## 평가방식
 
