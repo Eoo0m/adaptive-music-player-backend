@@ -12,9 +12,92 @@ https://dynplayer.win
 
 
 
+# **. engagement를 어떻게 올릴 것인가?**
+
+---
+
+## **UI**
+
+- 재생권한이 없기에, 첫 곡을 검색 이후 그 곡과 유사한 곡을 계속해서 디깅할 수 있는 구조
+    - 특정 곡을 seed로 하여 embedding space 상에서 인접한 곡들을 순차적으로 탐색하는 digging UX
+    - 사용자가 그래프를 따라 탐색한다는 인식을 줄 수 있도록 transition을 연결감 있게 설계
+- 새로운 곡 등장 시 애니메이션 효과
+    - 추천 결과가 단절적으로 나타나는 것이 아니라, 이전 곡과의 유사도 기반 연결로 등장한다는 인식을 제공
+    - discovery 과정에서의 몰입감 및 탐색 지속 시간 증가 목적
+
+---
+
+## **알고리즘**
+
+---
+
+### **track**
+
+- 특정 트랙을 검색시에 그 곡과 유사한 곡 15개를 선정하여 제시
+- 이때 트랙의 임베딩:
+    - playlist 내 co-occurrence를 positive set으로 하여 multipositive InfoNCE를 활용하여 학습
+    - 동일 플레이리스트 내 공동 출현 확률 분포를 embedding 공간 거리로 근사하는 것이 목적
+- 목적:
+    - 특정 곡을 기준으로 동일 맥락에 존재하는 곡 집단을 retrieval 가능하도록 representation 학습
+- 문제점: 인기곡(Hub) 쏠림 현상
+    - playlist 등장 빈도가 높은 인기곡이 비인기곡에 비해 평균적인 유사도가 너무 높아 쏠림 현상 발생
+- 해결:
+    - embedding space density regularization 목적의 uniformity loss를 proxy로 추가
+    - representation spread 확보 및 hubness 완화
+    
+    → recall, ndcg 상승, 분포에서 쏠림현상 완화
+    
+
+---
+
+### **메트릭**
+
+- playlist completion:
+    - 각 플레이리스트 내에서 80퍼센트의 곡만을 이용하여 학습 후, 나머지 20퍼센트를 retrieval로 복원
+    - leave-k-out split 기반 평가
+    - metric: Recall, NDCG
+- linear evaluation:
+    - 학습된 embedding을 freeze한 뒤, 선형 projection만을 이용하여 Spotify 기준 50가지 장르 classification 수행
+    - embedding의 semantic separability 평가 목적
+    - metric: Genre prediction Top-5 accuracy
+- co-occurrence rate:
+    - 플레이리스트 중 80퍼센트만을 이용하여 학습 후, 20퍼센트 구간에서의 query-positive pair retrieval rate 측정
+    - pairwise co-save likelihood 복원 성능 평가
+    - metric: Recall, NDCG
+
+---
+
+### **keyword**
+
+- 키워드 검색시 쿼리와 유사한 플레이리스트 100개 추출하여 유사도 × 등장 빈도로 트랙 추천
+    - playlist title text embedding(OpenAI embedding large) 활용
+    - playlist title ↔ playlist track set 간 multimodal contrastive learning 구조로 정렬
+    - text semantic과 track co-occurrence representation alignment 목적
+
+---
+
+### **메트릭**
+
+- 플레이리스트 타이틀 임베딩으로 플레이리스트 검색
+    - text query → playlist retrieval 성능 평가
+    - semantic title understanding 및 playlist mapping 정확도 측정
+    - metric: Recall, NDCG
+
+---
+### Ongoing Experiments
+	•	Multimodal Track Embedding
+Audio(30s preview) + Lyrics + MF(Co-occurrence) concat 기반 임베딩 학습 진행중
+(약 80K 트랙 수집 및 전처리 단계)
+	•	Graph Embedding Extension
+Playlist–Track bipartite graph 기반 임베딩 추가 실험
+	•	Retrieval → Ranking Pipeline
+Retrieval 후보군에 대해 embedding fusion 기반 ranking 모델 설계 및 실험 진행중
+	•	Session-based Recommendation
+사용자 세션 시퀀스 기반 next-track 추천 모델 실험 진행중
 
 
 
+---
 ## architecture
 
 <img width="391" height="224" alt="image" src="https://github.com/user-attachments/assets/8bb8a8ef-581c-42d1-b88a-ce78f3ede42c" />
