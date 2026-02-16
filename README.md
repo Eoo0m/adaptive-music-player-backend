@@ -10,6 +10,8 @@ https://dynplayer.win
 
 ![video_3x](https://github.com/user-attachments/assets/c6fdbc9d-1f6a-4fa3-aa49-c39b7634b802)
 
+![demo](https://github.com/user-attachments/assets/46c70881-964d-4a1d-ba61-4b214a72d79f)
+
 
 
 ## **Dataset**
