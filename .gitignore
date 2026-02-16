@@ -6,3 +6,6 @@ yarn-debug.log*
 yarn-error.log*
 dist/
 build/
+__pycache__/
+*.pyc
+archive/
