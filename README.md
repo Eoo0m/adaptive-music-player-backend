@@ -50,7 +50,7 @@ https://dynplayer.win
 
 ## **System Architecture**
 
-![image.png](attachment:a9e8637d-9a9a-4f09-b5fb-acc8758cb941:image.png)
+<img width="502" height="173" alt="image" src="https://github.com/user-attachments/assets/63faf2e7-9a9a-4acb-8fd8-72538300bdd7" />
 
 ## **Core APIs**
 
@@ -67,8 +67,6 @@ https://dynplayer.win
 ---
 
 # **engagement를 어떻게 올릴 것인가?**
-
----
 
 ## **UI**
 
@@ -196,7 +194,7 @@ $$
 -> uniformity loss 적용시, 인기곡과 비인기곡의 차이 감소, 성능도 상승
 
 
-
+---
 
 ## 텍스트 검색으로 플레이리스트를 찾아도되는데 굳이 임베딩을 학습하는 이유?
 → 텍스트로 나타낼 수 없는 음악적 특성 반영
