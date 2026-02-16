@@ -133,7 +133,7 @@ https://dynplayer.win
 ### Ongoing Experiments
 
 	•	Multimodal Track Embedding:Audio(30s preview) + Lyrics + MF(Co-occurrence) concat 기반 임베딩 학습 진행중 (약 80K 트랙 수집 및 전처리 단계)
-	•	Graph Embedding Extension: Playlist–Track bipartite graph 기반 임베딩 추가 실험
+	•	Graph Embedding Extension: pinSAGE 기반 임베딩 학습
 	•	Retrieval → Ranking: Retrieval 후보군에 대해 ranking 모델 설계 및 실험 진행중(DCN v2)
 	•	Session-based Recommendation: 사용자 세션 기반 추천 모델 실험 진행중
 
