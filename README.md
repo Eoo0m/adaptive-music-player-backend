@@ -5,8 +5,8 @@
 
 https://dynplayer.win
 
-- 앨범 커버 클릭시 검색창 노출
-- 음악 재생 개발자 id로만 가능, 재생없이 추천 클릭!
+- title/artist 검색, keyword 검색 기능
+- 앨범 커버 클릭 시 해당 곡과 유사한 곡 추천, 두번 클릭 시 재생사이트로 이동
 
 ![video_3x](https://github.com/user-attachments/assets/c6fdbc9d-1f6a-4fa3-aa49-c39b7634b802)
 
