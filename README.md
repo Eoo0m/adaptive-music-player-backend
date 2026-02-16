@@ -29,7 +29,7 @@ https://dynplayer.win
 
 ### **Track Retrieval**
 
-- Co-occurrence graph embedding
+- Co-occurrence based representation learning
 - Multipositive InfoNCE
 - Uniformity loss for hubness mitigation
 
