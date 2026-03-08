@@ -119,6 +119,118 @@ class CaptionPlaylistCLIP(nn.Module):
         self.temperature = temperature
 
 
+# Two-Tower 모델 정의 (세션 기반 추천용)
+import math
+
+class PositionalEncoding(nn.Module):
+    """Sinusoidal positional encoding."""
+
+    def __init__(self, d_model, max_len=32):
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe.unsqueeze(0))  # (1, max_len, d_model)
+
+    def forward(self, x):
+        return x + self.pe[:, :x.size(1), :]
+
+
+class UserTower(nn.Module):
+    """User Tower: Encode sequence of item embeddings using a small Transformer."""
+
+    def __init__(self, item_dim, out_dim, hidden_dim=128, n_heads=4, n_layers=2, max_seq_len=16):
+        super().__init__()
+        self.input_proj = nn.Linear(item_dim, hidden_dim)
+        self.pos_enc = PositionalEncoding(hidden_dim, max_seq_len)
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim,
+            nhead=n_heads,
+            dim_feedforward=hidden_dim * 4,
+            dropout=0.1,
+            activation='gelu',
+            batch_first=True,
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers, enable_nested_tensor=False)
+        self.cls_token = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.output_proj = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, out_dim),
+        )
+
+    def forward(self, x, mask=None):
+        batch_size = x.size(0)
+        x = self.input_proj(x)
+        x = self.pos_enc(x)
+
+        cls = self.cls_token.expand(batch_size, -1, -1)
+        x = torch.cat([cls, x], dim=1)
+
+        if mask is not None:
+            cls_mask = torch.zeros(batch_size, 1, dtype=torch.bool, device=mask.device)
+            mask = torch.cat([cls_mask, mask], dim=1)
+
+        x = self.transformer(x, src_key_padding_mask=mask)
+        cls_output = x[:, 0, :]
+        out = self.output_proj(cls_output)
+        out = F.normalize(out, p=2, dim=-1)
+        return out
+
+
+class ItemTower(nn.Module):
+    """Item Tower: Project item embedding using MLP."""
+
+    def __init__(self, item_dim, out_dim, hidden_dim=256):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(item_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim, out_dim),
+        )
+
+    def forward(self, x):
+        out = self.mlp(x)
+        out = F.normalize(out, p=2, dim=-1)
+        return out
+
+
+class TwoTowerModel(nn.Module):
+    """Two-Tower Model for session-based recommendation."""
+
+    def __init__(self, item_dim, out_dim=128, hidden_dim=128, n_heads=4, n_layers=2, temperature=0.07):
+        super().__init__()
+        self.user_tower = UserTower(
+            item_dim=item_dim,
+            out_dim=out_dim,
+            hidden_dim=hidden_dim,
+            n_heads=n_heads,
+            n_layers=n_layers,
+        )
+        self.item_tower = ItemTower(
+            item_dim=item_dim,
+            out_dim=out_dim,
+            hidden_dim=hidden_dim * 2,
+        )
+        self.temperature = temperature
+        self.out_dim = out_dim
+
+    def encode_user(self, user_seq, user_mask=None):
+        """Encode user sequence to embedding."""
+        return self.user_tower(user_seq, user_mask)
+
+    def encode_item(self, items):
+        """Encode items to embeddings."""
+        return self.item_tower(items)
+
+
 # 모델 로드
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 title_dim = 3072  # OpenAI text-embedding-3-large
@@ -132,6 +244,19 @@ playlist_clip_model.load_state_dict(torch.load("clip_simgcl.pt", map_location=de
 playlist_clip_model.eval()
 
 logger.info(f"✅ CLIP model (clip_simgcl.pt) loaded on {device}")
+
+# Two-Tower 모델 로드 (세션 기반 추천용)
+two_tower_model = TwoTowerModel(
+    item_dim=64,  # SimGCL 트랙 임베딩 차원
+    out_dim=128,
+    hidden_dim=128,
+    n_heads=4,
+    n_layers=2,
+).to(device)
+two_tower_model.load_state_dict(torch.load("two_tower_best.pt", map_location=device))
+two_tower_model.eval()
+
+logger.info(f"✅ Two-Tower model (two_tower_best.pt) loaded on {device}")
 
 # FastAPI 앱 생성
 app = FastAPI(title="Dynplayer API")
@@ -477,9 +602,9 @@ async def search_songs(request: SearchRequest):
         )
 
 
-@app.post("/recommend")
-async def recommend(request: RecommendRequest):
-    """track_key 기반 유사 음악 추천"""
+@app.post("/find-similar-tracks")
+async def find_similar_tracks(request: RecommendRequest):
+    """track_key 기반 유사 음악 추천 (검색 결과 클릭 시 사용)"""
     if not request.track_key:
         raise HTTPException(status_code=400, detail="Missing track_key")
 
@@ -531,16 +656,16 @@ async def recommend(request: RecommendRequest):
         )
 
 
-@app.post("/recommend-average")
-async def recommend_average(request: RecommendAverageRequest):
-    """여러 track_key들의 평균 임베딩 기반 유사 음악 추천"""
+@app.post("/recommend")
+async def recommend(request: RecommendAverageRequest):
+    """세션 기반 추천 (Two-Tower 모델 사용)"""
     if not request.track_keys or len(request.track_keys) == 0:
         raise HTTPException(status_code=400, detail="Missing track_keys")
 
     try:
-        logger.info(f"🎯 Averaging {len(request.track_keys)} track embeddings")
+        logger.info(f"🎯 Two-Tower recommend with {len(request.track_keys)} session tracks")
 
-        # 각 track_key의 임베딩 가져오기
+        # 1. 각 track_key의 임베딩 가져오기 (64차원)
         embeddings = []
         for track_key in request.track_keys:
             response = (
@@ -554,74 +679,115 @@ async def recommend_average(request: RecommendAverageRequest):
             if response.data and len(response.data) > 0:
                 embedding = response.data[0].get("embedding")
                 if embedding:
-                    # 문자열로 저장된 경우 JSON 파싱
                     if isinstance(embedding, str):
                         import json
                         embedding = json.loads(embedding)
-
-                    # 임베딩을 float 배열로 명시적 변환
                     embedding_array = np.array(embedding, dtype=np.float32)
                     embeddings.append(embedding_array)
-                    logger.debug(f"Loaded embedding for {track_key}: shape={embedding_array.shape}, dtype={embedding_array.dtype}")
 
         if len(embeddings) == 0:
             raise HTTPException(
                 status_code=404, detail="No embeddings found for provided track_keys"
             )
 
-        # 평균 임베딩 계산
-        embeddings_stack = np.stack(embeddings)  # 명시적으로 stack
-        avg_embedding = np.mean(embeddings_stack, axis=0)
+        # 2. User Tower로 세션 임베딩 생성
+        # 시퀀스를 텐서로 변환 (batch=1, seq_len, item_dim=64)
+        user_seq = torch.tensor(np.stack(embeddings), dtype=torch.float32).unsqueeze(0).to(device)
 
-        # 정규화
-        norm = np.linalg.norm(avg_embedding)
-        if norm > 0:
-            avg_embedding = avg_embedding / norm
+        with torch.no_grad():
+            user_embedding = two_tower_model.encode_user(user_seq)  # (1, 128)
 
-        logger.info(f"✅ Computed average embedding from {len(embeddings)} tracks (shape: {avg_embedding.shape}, dtype: {avg_embedding.dtype})")
+        logger.info(f"✅ User embedding computed from {len(embeddings)} tracks")
 
-        # 평균 임베딩으로 유사 곡 검색
-        response = supabase.rpc(
+        # 3. 모든 트랙의 Item Tower 임베딩 가져와서 유사도 계산
+        # 효율성을 위해 DB에서 상위 후보를 가져온 후 Item Tower로 리랭킹
+        # 먼저 평균 임베딩으로 후보 100개 가져오기
+        avg_embedding = np.mean(np.stack(embeddings), axis=0)
+        avg_embedding = avg_embedding / np.linalg.norm(avg_embedding)
+
+        candidate_response = supabase.rpc(
             "match_tracks_by_embedding",
             {
                 "query_embedding": avg_embedding.tolist(),
-                "match_count": request.num_recommendations,
+                "match_count": 100,  # 후보 100개
             },
         ).execute()
 
-        if response.data is None:
-            raise HTTPException(
-                status_code=500, detail="Average-based recommendation failed"
+        if not candidate_response.data:
+            raise HTTPException(status_code=500, detail="No candidates found")
+
+        # 4. 후보들의 임베딩으로 Item Tower 통과 후 유사도 계산
+        candidate_embeddings = []
+        candidate_tracks = []
+
+        for item in candidate_response.data:
+            track_key = item["track_key"]
+            # 이미 세션에 있는 트랙 제외
+            if track_key in request.track_keys:
+                continue
+
+            emb_response = (
+                supabase.table("track_embeddings")
+                .select("embedding")
+                .eq("track_key", track_key)
+                .limit(1)
+                .execute()
             )
 
-        # 결과 포맷 변환
-        recommendations = [
-            {
+            if emb_response.data and len(emb_response.data) > 0:
+                emb = emb_response.data[0].get("embedding")
+                if emb:
+                    if isinstance(emb, str):
+                        import json
+                        emb = json.loads(emb)
+                    candidate_embeddings.append(np.array(emb, dtype=np.float32))
+                    candidate_tracks.append(item)
+
+        if len(candidate_embeddings) == 0:
+            raise HTTPException(status_code=500, detail="No valid candidates")
+
+        # Item Tower로 후보 임베딩 변환
+        candidate_tensor = torch.tensor(np.stack(candidate_embeddings), dtype=torch.float32).to(device)
+        with torch.no_grad():
+            item_embeddings = two_tower_model.encode_item(candidate_tensor)  # (N, 128)
+
+        # 유사도 계산 (cosine similarity)
+        similarities = torch.matmul(user_embedding, item_embeddings.T).squeeze(0)  # (N,)
+        similarities = similarities.cpu().numpy()
+
+        # 유사도 기준 정렬
+        sorted_indices = np.argsort(-similarities)  # 내림차순
+
+        # 상위 N개 선택
+        num_results = min(request.num_recommendations, len(sorted_indices))
+        recommendations = []
+
+        for idx in sorted_indices[:num_results]:
+            item = candidate_tracks[idx]
+            recommendations.append({
                 "track_id": item["id"],
                 "track_key": item["track_key"],
                 "track": item["title"],
                 "artist": item["artist"],
                 "album": item["album"],
                 "playlist_count": item["playlist_count"],
-                "similarity": item.get("similarity", 0),
+                "similarity": float(similarities[idx]),
                 "cover_image_url": item.get("cover_image_url"),
-            }
-            for item in response.data
-        ]
+            })
 
-        logger.info(f"Average-based recommend: {len(recommendations)} tracks from {len(embeddings)} averaged tracks")
+        logger.info(f"Two-Tower recommend: {len(recommendations)} tracks from {len(embeddings)} session tracks")
 
         return {
             "recommendations": recommendations,
-            "num_averaged_tracks": len(embeddings),
+            "num_session_tracks": len(embeddings),
         }
 
     except Exception as e:
-        logger.error(f"Recommend average error: {str(e)}")
+        logger.error(f"Two-Tower recommend error: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(
-            status_code=500, detail=f"Average-based recommendation failed: {str(e)}"
+            status_code=500, detail=f"Session-based recommendation failed: {str(e)}"
         )
 
 
