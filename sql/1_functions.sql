@@ -1,5 +1,6 @@
 -- ============================================================
 -- DynPlayer RPC Functions (track_embeddings 테이블 기준)
+-- 먼저 이 파일을 실행하세요
 -- ============================================================
 
 -- 기존 함수 삭제 (리턴 타입 변경 시 필요)
@@ -152,32 +153,3 @@ AS $$
         similarity(lower(title || ' ' || artist), lower(query_text)) DESC
     LIMIT match_count;
 $$;
-
-
--- ============================================================
--- Indexes (성능 최적화)
--- ============================================================
-
--- embedding 컬럼 HNSW 인덱스 (256차원, 유사곡 추천용)
-CREATE INDEX IF NOT EXISTS idx_track_embedding_hnsw
-ON track_embeddings
-USING hnsw (embedding vector_cosine_ops)
-WITH (m = 16, ef_construction = 64);
-
--- projected_embedding 컬럼 HNSW 인덱스 (512차원, 키워드 검색용)
-CREATE INDEX IF NOT EXISTS idx_track_projected_embedding_hnsw
-ON track_embeddings
-USING hnsw (projected_embedding vector_cosine_ops)
-WITH (m = 16, ef_construction = 64);
-
--- 텍스트 검색용 pg_trgm 인덱스
-CREATE INDEX IF NOT EXISTS idx_track_title_trgm
-ON track_embeddings
-USING gin ((lower(title || ' ' || artist)) gin_trgm_ops);
-
--- prefix 검색용 btree 인덱스
-CREATE INDEX IF NOT EXISTS idx_track_title_btree
-ON track_embeddings (lower(title) text_pattern_ops);
-
-CREATE INDEX IF NOT EXISTS idx_track_artist_btree
-ON track_embeddings (lower(artist) text_pattern_ops);
