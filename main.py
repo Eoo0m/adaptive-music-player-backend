@@ -544,7 +544,7 @@ async def recommend_average(request: RecommendAverageRequest):
         embeddings = []
         for track_key in request.track_keys:
             response = (
-                supabase.table("new_track_embeddings")
+                supabase.table("track_embeddings")
                 .select("embedding")
                 .eq("track_key", track_key)
                 .limit(1)

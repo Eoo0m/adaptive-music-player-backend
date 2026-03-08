@@ -30,7 +30,7 @@ AS $$
         pos_count,
         cover_image_url,
         1 - (projected_embedding <=> query_embedding) AS similarity
-    FROM new_track_embeddings
+    FROM track_embeddings
     WHERE projected_embedding IS NOT NULL
     ORDER BY projected_embedding <=> query_embedding
     LIMIT match_count;
@@ -39,6 +39,6 @@ $$;
 -- HNSW 인덱스 생성 (성능 최적화)
 -- 이미 존재하면 무시됨
 CREATE INDEX IF NOT EXISTS idx_track_projected_embedding_hnsw
-ON new_track_embeddings
+ON track_embeddings
 USING hnsw (projected_embedding vector_cosine_ops)
 WITH (m = 16, ef_construction = 64);
