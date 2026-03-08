@@ -462,7 +462,7 @@ async def search_songs(request: SearchRequest):
                 "track": item["title"],
                 "artist": item["artist"],
                 "album": item["album"],
-                "pos_count": item["pos_count"],
+                "playlist_count": item["playlist_count"],
                 "similarity": item.get("similarity", 0),
                 "cover_image_url": item.get("cover_image_url"),
             })
@@ -505,7 +505,7 @@ async def recommend(request: RecommendRequest):
                 "track": item["title"],
                 "artist": item["artist"],
                 "album": item["album"],
-                "pos_count": item["pos_count"],
+                "playlist_count": item["playlist_count"],
                 "similarity": item.get("similarity", 0),
                 "cover_image_url": item.get("cover_image_url"),
             })
@@ -602,7 +602,7 @@ async def recommend_average(request: RecommendAverageRequest):
                 "track": item["title"],
                 "artist": item["artist"],
                 "album": item["album"],
-                "pos_count": item["pos_count"],
+                "playlist_count": item["playlist_count"],
                 "similarity": item.get("similarity", 0),
                 "cover_image_url": item.get("cover_image_url"),
             }
@@ -677,7 +677,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
                 "track_name": item["title"],
                 "artist": item["artist"],
                 "album": item["album"],
-                "pos_count": item["pos_count"],
+                "playlist_count": item["playlist_count"],
                 "cover_image_url": item["cover_image_url"],
                 "similarity": item.get("similarity", 0),
             }

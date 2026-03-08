@@ -13,7 +13,7 @@ RETURNS TABLE (
     title text,
     artist text,
     album text,
-    pos_count int,
+    playlist_count int,
     cover_image_url text,
     similarity float
 )
@@ -24,7 +24,7 @@ AS $$
         title,
         artist,
         album,
-        pos_count,
+        playlist_count,
         cover_image_url,
         1 - (projected_embedding <=> query_embedding) AS similarity
     FROM track_embeddings
@@ -46,7 +46,7 @@ RETURNS TABLE (
     title text,
     artist text,
     album text,
-    pos_count int,
+    playlist_count int,
     cover_image_url text,
     similarity float
 )
@@ -87,7 +87,7 @@ RETURNS TABLE (
     title text,
     artist text,
     album text,
-    pos_count int,
+    playlist_count int,
     cover_image_url text,
     similarity float
 )
@@ -99,7 +99,7 @@ AS $$
         title,
         artist,
         album,
-        pos_count,
+        playlist_count,
         cover_image_url,
         1 - (embedding <=> query_embedding) AS similarity
     FROM track_embeddings
@@ -121,7 +121,7 @@ RETURNS TABLE (
     title text,
     artist text,
     album text,
-    pos_count int,
+    playlist_count int,
     cover_image_url text,
     similarity float
 )
@@ -133,7 +133,7 @@ AS $$
         title,
         artist,
         album,
-        pos_count,
+        playlist_count,
         cover_image_url,
         similarity(lower(title || ' ' || artist), lower(query_text)) AS similarity
     FROM track_embeddings
