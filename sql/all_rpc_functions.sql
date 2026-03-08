@@ -2,6 +2,13 @@
 -- DynPlayer RPC Functions (track_embeddings 테이블 기준)
 -- ============================================================
 
+-- 기존 함수 삭제 (리턴 타입 변경 시 필요)
+DROP FUNCTION IF EXISTS match_tracks_by_projected_embedding(vector(512), int);
+DROP FUNCTION IF EXISTS match_tracks_by_key(text, int);
+DROP FUNCTION IF EXISTS match_tracks_by_embedding(vector(256), int);
+DROP FUNCTION IF EXISTS search_tracks_by_title(text, int);
+
+
 -- 1. match_tracks_by_projected_embedding
 -- 키워드 검색용: 프로젝션된 텍스트 임베딩으로 트랙 직접 검색
 CREATE OR REPLACE FUNCTION match_tracks_by_projected_embedding(
@@ -64,7 +71,7 @@ AS $$
         t.title,
         t.artist,
         t.album,
-        t.pos_count,
+        t.playlist_count,
         t.cover_image_url,
         1 - (t.embedding <=> q.embedding) AS similarity
     FROM track_embeddings t, query_track q
