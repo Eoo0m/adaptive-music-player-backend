@@ -1,13 +1,9 @@
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import time
 import os
-import base64
-import secrets
-import httpx
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from openai import OpenAI
@@ -339,10 +335,6 @@ async def health_check():
 
 
 # Pydantic 모델
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
-
-
 class SearchRequest(BaseModel):
     query: str
 
@@ -376,12 +368,6 @@ class ListeningLogRequest(BaseModel):
     recommendation_mode: Optional[str] = None
     similarity_score: Optional[float] = None
     session_id: Optional[str] = None
-
-
-# 유틸리티 함수
-def generate_random_string(length: int = 16) -> str:
-    """랜덤 문자열 생성"""
-    return secrets.token_urlsafe(length)[:length]
 
 
 @retry(
@@ -603,127 +589,6 @@ def recommend_tracks_by_weighted_frequency(playlist_results, top_k: int = 10):
     ]
 
     return [track_id for track_id, _ in sorted_tracks]
-
-
-# ============== Routes ==============
-
-
-@app.get("/")
-async def root():
-    """루트 엔드포인트"""
-    return {"message": "dynplayer API"}
-
-
-@app.get("/health")
-async def health():
-    """헬스 체크"""
-    return "ok"
-
-
-# ============== Spotify OAuth ==============
-
-
-@app.get("/login")
-async def login():
-    """Spotify 로그인 시작"""
-    scopes = [
-        "streaming",
-        "user-read-email",
-        "user-read-private",
-        "user-library-read",
-        "user-library-modify",
-        "user-read-playback-state",
-        "user-modify-playback-state",
-        "playlist-read-private",
-        "playlist-read-collaborative",
-    ]
-
-    params = {
-        "response_type": "code",
-        "client_id": os.getenv("SPOTIFY_CLIENT_ID"),
-        "scope": " ".join(scopes),
-        "redirect_uri": os.getenv("REDIRECT_URI"),
-        "state": generate_random_string(16),
-    }
-
-    from urllib.parse import urlencode
-
-    auth_url = f"https://accounts.spotify.com/authorize?{urlencode(params)}"
-    return RedirectResponse(url=auth_url)
-
-
-@app.get("/callback")
-async def callback(code: Optional[str] = None):
-    """Spotify OAuth 콜백"""
-    if not code:
-        return RedirectResponse(url="/#error=access_denied")
-
-    try:
-        # Spotify 토큰 교환
-        auth_str = (
-            f"{os.getenv('SPOTIFY_CLIENT_ID')}:{os.getenv('SPOTIFY_CLIENT_SECRET')}"
-        )
-        auth_b64 = base64.b64encode(auth_str.encode()).decode()
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://accounts.spotify.com/api/token",
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Authorization": f"Basic {auth_b64}",
-                },
-                data={
-                    "code": code,
-                    "redirect_uri": os.getenv("REDIRECT_URI"),
-                    "grant_type": "authorization_code",
-                },
-            )
-            token_data = response.json()
-
-        if token_data.get("access_token"):
-            redirect_url = (
-                f"https://dynplayer.win/#access_token={token_data['access_token']}"
-            )
-            if token_data.get("refresh_token"):
-                redirect_url += f"&refresh_token={token_data['refresh_token']}"
-            return RedirectResponse(url=redirect_url)
-        else:
-            return RedirectResponse(url="/#error=invalid_token")
-
-    except Exception as e:
-        logger.error(f"OAuth token error: {str(e)}")
-        return RedirectResponse(url="/#error=server_error")
-
-
-@app.post("/refresh_token")
-async def refresh_token(request: RefreshTokenRequest):
-    """토큰 리프레시"""
-    if not request.refresh_token:
-        raise HTTPException(status_code=400, detail="Missing refresh token")
-
-    try:
-        auth_str = (
-            f"{os.getenv('SPOTIFY_CLIENT_ID')}:{os.getenv('SPOTIFY_CLIENT_SECRET')}"
-        )
-        auth_b64 = base64.b64encode(auth_str.encode()).decode()
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://accounts.spotify.com/api/token",
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Authorization": f"Basic {auth_b64}",
-                },
-                data={
-                    "grant_type": "refresh_token",
-                    "refresh_token": request.refresh_token,
-                },
-            )
-            return response.json()
-
-    except Exception as e:
-        logger.error(f"Refresh token error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to refresh token")
 
 
 # ============== Search & Recommendation ==============
