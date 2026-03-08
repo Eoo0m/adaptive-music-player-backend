@@ -122,16 +122,16 @@ class CaptionPlaylistCLIP(nn.Module):
 # 모델 로드
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 title_dim = 3072  # OpenAI text-embedding-3-large
-playlist_dim = 256  # 플레이리스트 임베딩 차원
+playlist_dim = 64  # SimGCL 트랙 임베딩 차원
 
-# 플레이리스트 CLIP 모델 로드 (텍스트 임베딩 프로젝션용)
+# CLIP 모델 로드 (텍스트 → 트랙 임베딩 프로젝션용)
 playlist_clip_model = CaptionPlaylistCLIP(
     caption_dim=title_dim, playlist_dim=playlist_dim, out_dim=512
 ).to(device)
-playlist_clip_model.load_state_dict(torch.load("clip_u10_valid_tracks_best.pt", map_location=device))
+playlist_clip_model.load_state_dict(torch.load("clip_simgcl.pt", map_location=device))
 playlist_clip_model.eval()
 
-logger.info(f"✅ Playlist CLIP model loaded on {device}")
+logger.info(f"✅ CLIP model (clip_simgcl.pt) loaded on {device}")
 
 # FastAPI 앱 생성
 app = FastAPI(title="Dynplayer API")
@@ -155,11 +155,10 @@ async def keep_alive_ping():
             ping_vec = np.random.randn(512).astype(np.float32)
             ping_vec = ping_vec / np.linalg.norm(ping_vec)
             _ = supabase.rpc(
-                "search_tracks_by_keyword_fast",
+                "match_tracks_by_projected_embedding",
                 {
                     "query_embedding": ping_vec.tolist(),
-                    "playlist_count": 50,  # 실제 검색과 동일한 범위
-                    "track_count": 10
+                    "match_count": 10
                 }
             ).execute()
 
@@ -204,11 +203,10 @@ async def startup_event():
             warmup_vec = np.random.randn(512).astype(np.float32)
             warmup_vec = warmup_vec / np.linalg.norm(warmup_vec)
             _ = supabase.rpc(
-                "search_tracks_by_keyword_fast",
+                "match_tracks_by_projected_embedding",
                 {
                     "query_embedding": warmup_vec.tolist(),
-                    "playlist_count": 50,  # 실제 검색과 동일한 범위
-                    "track_count": 10
+                    "match_count": 10
                 }
             ).execute()
         logger.info(f"  ✅ Database fully warmed up ({time.time() - warmup_start:.2f}s, 5 queries)")
@@ -405,69 +403,6 @@ def get_openai_embedding_with_retry(keyword: str):
         raise
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=5),
-    reraise=True
-)
-def search_supabase_playlists_with_retry(projected_embedding: list, top_k: int):
-    """
-    Supabase 벡터 검색 (재시도 로직 포함)
-
-    Args:
-        projected_embedding: 프로젝션된 임베딩 벡터
-        top_k: 반환할 상위 플레이리스트 개수
-
-    Returns:
-        Supabase response data
-    """
-    logger.info(f"🔄 Calling Supabase RPC for vector search (top_k={top_k})")
-    response = supabase.rpc(
-        "match_playlist_embeddings",
-        {
-            "query_embedding": projected_embedding,
-            "match_count": top_k,
-        },
-    ).execute()
-    logger.info(f"✅ Supabase RPC response received")
-    return response
-
-
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    reraise=True
-)
-def search_tracks_by_keyword_fast_with_retry(query_embedding: list, playlist_count: int = 100, track_count: int = 10):
-    """
-    키워드 기반 트랙 검색 RPC (재시도 로직 포함)
-
-    Args:
-        query_embedding: 프로젝션된 쿼리 임베딩
-        playlist_count: 검색할 플레이리스트 개수
-        track_count: 반환할 트랙 개수
-
-    Returns:
-        Supabase response data
-    """
-    logger.info(f"🔄 Calling Supabase RPC: search_tracks_by_keyword_fast")
-    start_time = time.time()
-    try:
-        response = supabase.rpc(
-            "search_tracks_by_keyword_fast",
-            {
-                "query_embedding": query_embedding,
-                "playlist_count": playlist_count,
-                "track_count": track_count
-            }
-        ).execute()
-        elapsed = time.time() - start_time
-        logger.info(f"✅ search_tracks_by_keyword_fast completed ({elapsed:.2f}s)")
-        return response
-    except Exception as e:
-        elapsed = time.time() - start_time
-        logger.warning(f"⚠️ RPC attempt failed after {elapsed:.2f}s: {type(e).__name__}: {str(e)}")
-        raise
 
 
 @retry(
@@ -498,97 +433,6 @@ def search_tracks_by_title_with_retry(query_text: str, match_count: int = 10):
     elapsed = time.time() - start_time
     logger.info(f"✅ search_tracks_by_title completed ({elapsed:.2f}s)")
     return response
-
-
-def search_playlists_by_keyword(keyword: str, top_k: int = 50):
-    """
-    키워드로 플레이리스트 검색 (Supabase 벡터 검색 사용)
-
-    Args:
-        keyword: 검색 키워드
-        top_k: 반환할 상위 플레이리스트 개수
-
-    Returns:
-        list of (playlist_id, track_ids, similarity_score) tuples
-    """
-    try:
-        # 1. OpenAI 임베딩 (재시도 로직 포함)
-        keyword_embedding = get_openai_embedding_with_retry(keyword)
-
-        # 2. CLIP caption projection (텍스트만 프로젝션)
-        keyword_tensor = (
-            torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
-        )
-
-        with torch.no_grad():
-            projected_query = playlist_clip_model.caption_proj(keyword_tensor)  # (1, 512)
-            projected_embedding = projected_query.cpu().numpy()[0].tolist()
-
-        # 3. Supabase에서 유사한 플레이리스트 검색 (재시도 로직 포함)
-        response = search_supabase_playlists_with_retry(projected_embedding, top_k)
-
-        if not response.data:
-            return []
-
-        # 4. 결과 반환 (playlist_id, track_ids, similarity)
-        results = []
-        for item in response.data:
-            results.append((item["playlist_id"], item["track_ids"], item["similarity"]))
-
-        return results
-
-    except (APIError, APIConnectionError, RateLimitError, Timeout) as e:
-        logger.error(f"❌ OpenAI API error after retries: {str(e)}")
-        raise HTTPException(
-            status_code=503,
-            detail=f"검색 서비스가 일시적으로 사용 불가합니다. 잠시 후 다시 시도해주세요."
-        )
-    except Exception as e:
-        logger.error(f"❌ Unexpected error in search_playlists_by_keyword: {str(e)}")
-        raise
-
-
-def recommend_tracks_by_weighted_frequency(playlist_results, top_k: int = 10):
-    """
-    플레이리스트 유사도로 가중평균한 트랙 추천
-
-    Args:
-        playlist_results: list of (playlist_id, track_ids, similarity_score) tuples
-        top_k: 반환할 트랙 개수
-
-    Returns:
-        list of track_key strings
-    """
-    from collections import defaultdict
-    import json
-
-    # 트랙별 가중 점수 계산
-    track_scores = defaultdict(float)
-
-    for playlist_id, track_ids_data, similarity_score in playlist_results:
-        if track_ids_data:
-            # track_ids는 JSON 배열 형태 (문자열 또는 리스트)
-            if isinstance(track_ids_data, str):
-                try:
-                    track_list = json.loads(track_ids_data)
-                except json.JSONDecodeError:
-                    # JSON 파싱 실패 시 "|"로 구분된 문자열로 시도
-                    track_list = [
-                        t.strip() for t in track_ids_data.split("|") if t.strip()
-                    ]
-            else:
-                track_list = track_ids_data
-
-            # 각 트랙에 유사도 점수 가중치 부여
-            for track_id in track_list:
-                track_scores[track_id] += similarity_score
-
-    # 상위 k개 트랙 선택
-    sorted_tracks = sorted(track_scores.items(), key=lambda x: x[1], reverse=True)[
-        :top_k
-    ]
-
-    return [track_id for track_id, _ in sorted_tracks]
 
 
 # ============== Search & Recommendation ==============
@@ -788,7 +632,7 @@ async def recommend_average(request: RecommendAverageRequest):
 
 @app.post("/search-by-keyword")
 async def search_by_keyword(request: KeywordSearchRequest):
-    """키워드 기반 검색 (DB에서 모두 처리)"""
+    """키워드 기반 검색 (트랙 임베딩 직접 검색)"""
     if not request.keyword:
         raise HTTPException(status_code=400, detail="Missing keyword")
 
@@ -803,7 +647,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
         keyword_embedding = get_openai_embedding_with_retry(request.keyword)
         timings["openai"] = time.time() - t_openai
 
-        # 2. CLIP projection
+        # 2. CLIP projection (텍스트 → 512차원 트랙 임베딩 공간)
         t_proj = time.time()
         keyword_tensor = torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
         with torch.no_grad():
@@ -811,76 +655,37 @@ async def search_by_keyword(request: KeywordSearchRequest):
             projected_embedding = projected_query.cpu().numpy()[0].tolist()
         timings["projection"] = time.time() - t_proj
 
-        # 3. DB에서 한 번에 처리 (플레이리스트 검색 + 트랙 가중합 + 메타데이터 조회)
+        # 3. 트랙 임베딩 직접 검색
         t_db = time.time()
-        try:
-            response = search_tracks_by_keyword_fast_with_retry(
-                query_embedding=projected_embedding,
-                playlist_count=50,  # 100 → 50으로 줄여서 속도 개선
-                track_count=10
-            )
-            timings["db"] = time.time() - t_db
-            logger.info(f"DB processing took {timings['db']:.2f}s")
+        response = supabase.rpc(
+            "match_tracks_by_projected_embedding",
+            {
+                "query_embedding": projected_embedding,
+                "match_count": 10
+            }
+        ).execute()
+        timings["db"] = time.time() - t_db
 
-            if not response.data:
-                logger.warning("No results from search_tracks_by_keyword_fast")
-                return {"results": []}
+        if not response.data:
+            logger.warning("No results from match_tracks_by_projected_embedding")
+            return {"results": []}
 
-            # 4. 결과 포맷 변환
-            results = [
-                {
-                    "track_key": item["track_key"],
-                    "track_name": item["title"],
-                    "artist": item["artist"],
-                    "album": item["album"],
-                    "pos_count": item["pos_count"],
-                    "cover_image_url": item["cover_image_url"],
-                }
-                for item in response.data
-            ]
+        # 4. 결과 포맷 변환
+        results = [
+            {
+                "track_key": item["track_key"],
+                "track_name": item["title"],
+                "artist": item["artist"],
+                "album": item["album"],
+                "pos_count": item["pos_count"],
+                "cover_image_url": item["cover_image_url"],
+                "similarity": item.get("similarity", 0),
+            }
+            for item in response.data
+        ]
 
-            logger.info(f"Keyword search completed: {len(results)} tracks")
-            return {"results": results, "timings": timings}
-
-        except Exception as rpc_error:
-            logger.error(f"RPC function failed: {str(rpc_error)}, falling back to old method")
-
-            # Fallback: 기존 방식 사용
-            playlist_results = search_playlists_by_keyword(request.keyword, top_k=100)
-            if not playlist_results:
-                return {"results": []}
-
-            track_ids = recommend_tracks_by_weighted_frequency(playlist_results, top_k=10)
-            if not track_ids:
-                return {"results": []}
-
-            response = (
-                supabase.table("new_track_embeddings")
-                .select("track_key, title, artist, album, pos_count, cover_image_url")
-                .in_("track_key", track_ids)
-                .execute()
-            )
-
-            if not response.data:
-                return {"results": []}
-
-            track_data_map = {item["track_key"]: item for item in response.data}
-            results = []
-
-            for track_id in track_ids:
-                if track_id in track_data_map:
-                    item = track_data_map[track_id]
-                    results.append({
-                        "track_key": item["track_key"],
-                        "track_name": item.get("title"),
-                        "artist": item.get("artist"),
-                        "album": item.get("album"),
-                        "pos_count": item.get("pos_count"),
-                        "cover_image_url": item.get("cover_image_url"),
-                    })
-
-            logger.info(f"Keyword search completed (fallback): {len(results)} tracks")
-            return {"results": results}
+        logger.info(f"Keyword search completed: {len(results)} tracks in {sum(timings.values()):.2f}s")
+        return {"results": results, "timings": timings}
 
     except Exception as e:
         logger.error(f"Keyword search failed: {str(e)}")
