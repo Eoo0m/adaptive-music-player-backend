@@ -690,80 +690,31 @@ async def recommend(request: RecommendAverageRequest):
                 status_code=404, detail="No embeddings found for provided track_keys"
             )
 
-        # 2. User Tower로 세션 임베딩 생성
-        # 시퀀스를 텐서로 변환 (batch=1, seq_len, item_dim=64)
+        # 2. User Tower로 세션 임베딩 생성 (128차원)
         user_seq = torch.tensor(np.stack(embeddings), dtype=torch.float32).unsqueeze(0).to(device)
 
         with torch.no_grad():
             user_embedding = two_tower_model.encode_user(user_seq)  # (1, 128)
 
+        user_embedding_list = user_embedding.squeeze(0).cpu().numpy().tolist()
         logger.info(f"✅ User embedding computed from {len(embeddings)} tracks")
 
-        # 3. 모든 트랙의 Item Tower 임베딩 가져와서 유사도 계산
-        # 효율성을 위해 DB에서 상위 후보를 가져온 후 Item Tower로 리랭킹
-        # 먼저 평균 임베딩으로 후보 100개 가져오기
-        avg_embedding = np.mean(np.stack(embeddings), axis=0)
-        avg_embedding = avg_embedding / np.linalg.norm(avg_embedding)
-
-        candidate_response = supabase.rpc(
-            "match_tracks_by_embedding",
+        # 3. DB에서 itemtower_embedding과 직접 비교하여 추천
+        response = supabase.rpc(
+            "match_tracks_by_user_embedding",
             {
-                "query_embedding": avg_embedding.tolist(),
-                "match_count": 100,  # 후보 100개
+                "query_embedding": user_embedding_list,
+                "exclude_track_keys": request.track_keys,
+                "match_count": request.num_recommendations,
             },
         ).execute()
 
-        if not candidate_response.data:
-            raise HTTPException(status_code=500, detail="No candidates found")
+        if not response.data:
+            raise HTTPException(status_code=500, detail="No recommendations found")
 
-        # 4. 후보들의 임베딩으로 Item Tower 통과 후 유사도 계산
-        candidate_embeddings = []
-        candidate_tracks = []
-
-        for item in candidate_response.data:
-            track_key = item["track_key"]
-            # 이미 세션에 있는 트랙 제외
-            if track_key in request.track_keys:
-                continue
-
-            emb_response = (
-                supabase.table("track_embeddings")
-                .select("embedding")
-                .eq("track_key", track_key)
-                .limit(1)
-                .execute()
-            )
-
-            if emb_response.data and len(emb_response.data) > 0:
-                emb = emb_response.data[0].get("embedding")
-                if emb:
-                    if isinstance(emb, str):
-                        import json
-                        emb = json.loads(emb)
-                    candidate_embeddings.append(np.array(emb, dtype=np.float32))
-                    candidate_tracks.append(item)
-
-        if len(candidate_embeddings) == 0:
-            raise HTTPException(status_code=500, detail="No valid candidates")
-
-        # Item Tower로 후보 임베딩 변환
-        candidate_tensor = torch.tensor(np.stack(candidate_embeddings), dtype=torch.float32).to(device)
-        with torch.no_grad():
-            item_embeddings = two_tower_model.encode_item(candidate_tensor)  # (N, 128)
-
-        # 유사도 계산 (cosine similarity)
-        similarities = torch.matmul(user_embedding, item_embeddings.T).squeeze(0)  # (N,)
-        similarities = similarities.cpu().numpy()
-
-        # 유사도 기준 정렬
-        sorted_indices = np.argsort(-similarities)  # 내림차순
-
-        # 상위 N개 선택
-        num_results = min(request.num_recommendations, len(sorted_indices))
+        # 4. 결과 포맷 변환
         recommendations = []
-
-        for idx in sorted_indices[:num_results]:
-            item = candidate_tracks[idx]
+        for item in response.data:
             recommendations.append({
                 "track_id": item["id"],
                 "track_key": item["track_key"],
@@ -771,7 +722,7 @@ async def recommend(request: RecommendAverageRequest):
                 "artist": item["artist"],
                 "album": item["album"],
                 "playlist_count": item["playlist_count"],
-                "similarity": float(similarities[idx]),
+                "similarity": item.get("similarity", 0),
                 "cover_image_url": item.get("cover_image_url"),
             })
 

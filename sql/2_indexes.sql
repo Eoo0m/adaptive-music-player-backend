@@ -4,7 +4,7 @@
 -- 각 인덱스를 개별적으로 실행하세요
 -- ============================================================
 
--- embedding 컬럼 HNSW 인덱스 (256차원, 유사곡 추천용)
+-- embedding 컬럼 HNSW 인덱스 (64차원, 유사곡 추천용)
 CREATE INDEX IF NOT EXISTS idx_track_embedding_hnsw
 ON track_embeddings
 USING hnsw (embedding vector_cosine_ops)
@@ -14,6 +14,12 @@ WITH (m = 16, ef_construction = 64);
 CREATE INDEX IF NOT EXISTS idx_track_projected_embedding_hnsw
 ON track_embeddings
 USING hnsw (projected_embedding vector_cosine_ops)
+WITH (m = 16, ef_construction = 64);
+
+-- itemtower_embedding 컬럼 HNSW 인덱스 (128차원, Two-Tower 세션 추천용)
+CREATE INDEX IF NOT EXISTS idx_track_itemtower_embedding_hnsw
+ON track_embeddings
+USING hnsw (itemtower_embedding vector_cosine_ops)
 WITH (m = 16, ef_construction = 64);
 
 -- 텍스트 검색용 pg_trgm 인덱스

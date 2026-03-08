@@ -1,6 +1,5 @@
 -- ============================================================
 -- DynPlayer RPC Functions (track_embeddings 테이블 기준)
--- 먼저 이 파일을 실행하세요
 -- ============================================================
 
 -- 기존 함수 삭제 (리턴 타입 변경 시 필요)
@@ -117,7 +116,46 @@ AS $$
 $$;
 
 
--- 4. search_tracks_by_title
+-- 4. match_tracks_by_user_embedding
+-- Two-Tower User 임베딩 기반 추천 (itemtower_embedding과 비교)
+DROP FUNCTION IF EXISTS match_tracks_by_user_embedding(vector(128), text[], int);
+
+CREATE OR REPLACE FUNCTION match_tracks_by_user_embedding(
+    query_embedding vector(128),
+    exclude_track_keys text[] DEFAULT '{}',
+    match_count int DEFAULT 30
+)
+RETURNS TABLE (
+    id bigint,
+    track_key text,
+    title text,
+    artist text,
+    album text,
+    playlist_count int,
+    cover_image_url text,
+    similarity float
+)
+LANGUAGE sql
+AS $$
+    SELECT
+        id,
+        track_key,
+        title,
+        artist,
+        album,
+        playlist_count,
+        cover_image_url,
+        1 - (itemtower_embedding <=> query_embedding) AS similarity
+    FROM track_embeddings
+    WHERE itemtower_embedding IS NOT NULL
+      AND (array_length(exclude_track_keys, 1) IS NULL
+           OR track_key != ALL(exclude_track_keys))
+    ORDER BY itemtower_embedding <=> query_embedding
+    LIMIT match_count;
+$$;
+
+
+-- 5. search_tracks_by_title
 -- 제목/아티스트 기반 텍스트 검색
 CREATE OR REPLACE FUNCTION search_tracks_by_title(
     query_text text,
