@@ -22,11 +22,10 @@ echo "🗑️  Cleaning Python cache..."
 find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 find . -name "*.pyc" -delete 2>/dev/null || true
 
-# 4. 가상환경 활성화 (필요시)
-# source venv/bin/activate
-
-# 5. 의존성 업데이트 (필요시)
-# pip install -r requirements.txt
+# 4. 가상환경 활성화 및 의존성 업데이트
+echo "📦 Installing dependencies..."
+source venv/bin/activate
+pip install -r requirements.txt --quiet
 
 # 6. Systemd 서비스 재시작
 echo "🔄 Restarting systemd service..."
