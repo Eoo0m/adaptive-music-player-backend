@@ -24,20 +24,26 @@ RETURNS TABLE (
     cover_image_url text,
     similarity float
 )
-LANGUAGE sql
+LANGUAGE plpgsql
 AS $$
+BEGIN
+    -- Supabase 무료 플랜 기본 8초 → 30초로 확장
+    SET LOCAL statement_timeout = '30s';
+
+    RETURN QUERY
     SELECT
-        track_key,
-        title,
-        artist,
-        album,
-        playlist_count,
-        cover_image_url,
-        1 - (projected_embedding <=> query_embedding) AS similarity
-    FROM track_embeddings
-    WHERE projected_embedding IS NOT NULL
-    ORDER BY projected_embedding <=> query_embedding
+        t.track_key,
+        t.title,
+        t.artist,
+        t.album,
+        t.playlist_count,
+        t.cover_image_url,
+        1 - (t.projected_embedding <=> query_embedding) AS similarity
+    FROM track_embeddings t
+    WHERE t.projected_embedding IS NOT NULL
+    ORDER BY t.projected_embedding <=> query_embedding
     LIMIT match_count;
+END;
 $$;
 
 
@@ -57,8 +63,12 @@ RETURNS TABLE (
     cover_image_url text,
     similarity float
 )
-LANGUAGE sql
+LANGUAGE plpgsql
 AS $$
+BEGIN
+    SET LOCAL statement_timeout = '30s';
+
+    RETURN QUERY
     WITH query_track AS (
         SELECT embedding
         FROM track_embeddings
@@ -79,6 +89,7 @@ AS $$
       AND t.embedding IS NOT NULL
     ORDER BY t.embedding <=> q.embedding
     LIMIT match_count;
+END;
 $$;
 
 
@@ -98,21 +109,26 @@ RETURNS TABLE (
     cover_image_url text,
     similarity float
 )
-LANGUAGE sql
+LANGUAGE plpgsql
 AS $$
+BEGIN
+    SET LOCAL statement_timeout = '30s';
+
+    RETURN QUERY
     SELECT
-        id,
-        track_key,
-        title,
-        artist,
-        album,
-        playlist_count,
-        cover_image_url,
-        1 - (embedding <=> query_embedding) AS similarity
-    FROM track_embeddings
-    WHERE embedding IS NOT NULL
-    ORDER BY embedding <=> query_embedding
+        t.id,
+        t.track_key,
+        t.title,
+        t.artist,
+        t.album,
+        t.playlist_count,
+        t.cover_image_url,
+        1 - (t.embedding <=> query_embedding) AS similarity
+    FROM track_embeddings t
+    WHERE t.embedding IS NOT NULL
+    ORDER BY t.embedding <=> query_embedding
     LIMIT match_count;
+END;
 $$;
 
 
@@ -135,23 +151,28 @@ RETURNS TABLE (
     cover_image_url text,
     similarity float
 )
-LANGUAGE sql
+LANGUAGE plpgsql
 AS $$
+BEGIN
+    SET LOCAL statement_timeout = '30s';
+
+    RETURN QUERY
     SELECT
-        id,
-        track_key,
-        title,
-        artist,
-        album,
-        playlist_count,
-        cover_image_url,
-        1 - (itemtower_embedding <=> query_embedding) AS similarity
-    FROM track_embeddings
-    WHERE itemtower_embedding IS NOT NULL
+        t.id,
+        t.track_key,
+        t.title,
+        t.artist,
+        t.album,
+        t.playlist_count,
+        t.cover_image_url,
+        1 - (t.itemtower_embedding <=> query_embedding) AS similarity
+    FROM track_embeddings t
+    WHERE t.itemtower_embedding IS NOT NULL
       AND (array_length(exclude_track_keys, 1) IS NULL
-           OR track_key != ALL(exclude_track_keys))
-    ORDER BY itemtower_embedding <=> query_embedding
+           OR t.track_key != ALL(exclude_track_keys))
+    ORDER BY t.itemtower_embedding <=> query_embedding
     LIMIT match_count;
+END;
 $$;
 
 
@@ -171,23 +192,28 @@ RETURNS TABLE (
     cover_image_url text,
     similarity float
 )
-LANGUAGE sql
+LANGUAGE plpgsql
 AS $$
+BEGIN
+    SET LOCAL statement_timeout = '30s';
+
+    RETURN QUERY
     SELECT
-        id,
-        track_key,
-        title,
-        artist,
-        album,
-        playlist_count,
-        cover_image_url,
-        similarity(lower(title || ' ' || artist), lower(query_text)) AS similarity
-    FROM track_embeddings
-    WHERE lower(title || ' ' || artist) % lower(query_text)
-       OR lower(title) ILIKE query_text || '%'
-       OR lower(artist) ILIKE query_text || '%'
+        t.id,
+        t.track_key,
+        t.title,
+        t.artist,
+        t.album,
+        t.playlist_count,
+        t.cover_image_url,
+        similarity(lower(t.title || ' ' || t.artist), lower(query_text)) AS similarity
+    FROM track_embeddings t
+    WHERE lower(t.title || ' ' || t.artist) % lower(query_text)
+       OR lower(t.title) ILIKE query_text || '%'
+       OR lower(t.artist) ILIKE query_text || '%'
     ORDER BY
-        CASE WHEN lower(title) ILIKE query_text || '%' THEN 0 ELSE 1 END,
-        similarity(lower(title || ' ' || artist), lower(query_text)) DESC
+        CASE WHEN lower(t.title) ILIKE query_text || '%' THEN 0 ELSE 1 END,
+        similarity(lower(t.title || ' ' || t.artist), lower(query_text)) DESC
     LIMIT match_count;
+END;
 $$;

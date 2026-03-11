@@ -651,30 +651,33 @@ async def recommend(request: RecommendAverageRequest):
     try:
         logger.info(f"🎯 Two-Tower recommend with {len(request.track_keys)} session tracks")
 
-        # 1. 각 track_key의 임베딩 가져오기 (64차원)
-        embeddings = []
-        for track_key in request.track_keys:
-            response = (
-                supabase.table("track_embeddings")
-                .select("embedding")
-                .eq("track_key", track_key)
-                .limit(1)
-                .execute()
-            )
+        # 1. 모든 track_key의 임베딩을 한 번에 가져오기 (배치 쿼리)
+        response = (
+            supabase.table("track_embeddings")
+            .select("track_key, embedding")
+            .in_("track_key", request.track_keys)
+            .execute()
+        )
 
-            if response.data and len(response.data) > 0:
-                embedding = response.data[0].get("embedding")
-                if embedding:
-                    if isinstance(embedding, str):
-                        import json
-                        embedding = json.loads(embedding)
-                    embedding_array = np.array(embedding, dtype=np.float32)
-                    embeddings.append(embedding_array)
+        # track_key 순서대로 임베딩 정렬
+        embedding_map = {}
+        for row in response.data or []:
+            embedding = row.get("embedding")
+            if embedding:
+                if isinstance(embedding, str):
+                    import json
+                    embedding = json.loads(embedding)
+                embedding_map[row["track_key"]] = np.array(embedding, dtype=np.float32)
+
+        # 요청 순서대로 임베딩 리스트 생성
+        embeddings = [embedding_map[tk] for tk in request.track_keys if tk in embedding_map]
 
         if len(embeddings) == 0:
             raise HTTPException(
                 status_code=404, detail="No embeddings found for provided track_keys"
             )
+
+        logger.info(f"📦 Fetched {len(embeddings)} embeddings in single batch query")
 
         # 2. User Tower로 세션 임베딩 생성 (128차원)
         user_seq = torch.tensor(np.stack(embeddings), dtype=torch.float32).unsqueeze(0).to(device)
