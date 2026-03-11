@@ -530,23 +530,9 @@ def get_openai_embedding_with_retry(keyword: str):
 
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    reraise=True
-)
-def search_tracks_by_title_with_retry(query_text: str, match_count: int = 10):
-    """
-    제목 기반 트랙 검색 RPC (재시도 로직 포함)
-
-    Args:
-        query_text: 검색할 제목 텍스트
-        match_count: 반환할 트랙 개수
-
-    Returns:
-        Supabase response data
-    """
-    logger.info(f"🔄 Calling Supabase RPC: search_tracks_by_title for '{query_text}'")
+def search_tracks_by_title(query_text: str, match_count: int = 10):
+    """제목 기반 트랙 검색 RPC"""
+    logger.info(f"🔍 search_tracks_by_title: '{query_text}'")
     start_time = time.time()
     response = supabase.rpc(
         "search_tracks_by_title",
@@ -556,7 +542,7 @@ def search_tracks_by_title_with_retry(query_text: str, match_count: int = 10):
         }
     ).execute()
     elapsed = time.time() - start_time
-    logger.info(f"✅ search_tracks_by_title completed ({elapsed:.2f}s)")
+    logger.info(f"✅ search_tracks_by_title: {len(response.data or [])} tracks ({elapsed:.2f}s)")
     return response
 
 
@@ -570,7 +556,7 @@ async def search_songs(request: SearchRequest):
         raise HTTPException(status_code=400, detail="Missing query")
 
     try:
-        response = search_tracks_by_title_with_retry(
+        response = search_tracks_by_title(
             query_text=request.query,
             match_count=10
         )
