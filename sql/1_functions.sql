@@ -32,13 +32,13 @@ BEGIN
 
     RETURN QUERY
     SELECT
-        t.track_key,
-        t.title,
-        t.artist,
-        t.album,
+        t.track_key::text,
+        t.title::text,
+        t.artist::text,
+        t.album::text,
         t.playlist_count,
-        t.cover_image_url,
-        1 - (t.projected_embedding <=> query_embedding) AS similarity
+        t.cover_image_url::text,
+        (1 - (t.projected_embedding <=> query_embedding))::float AS similarity
     FROM track_embeddings t
     WHERE t.projected_embedding IS NOT NULL
     ORDER BY t.projected_embedding <=> query_embedding
@@ -77,13 +77,13 @@ BEGIN
     )
     SELECT
         t.id,
-        t.track_key,
-        t.title,
-        t.artist,
-        t.album,
+        t.track_key::text,
+        t.title::text,
+        t.artist::text,
+        t.album::text,
         t.playlist_count,
-        t.cover_image_url,
-        1 - (t.embedding <=> q.embedding) AS similarity
+        t.cover_image_url::text,
+        (1 - (t.embedding <=> q.embedding))::float AS similarity
     FROM track_embeddings t, query_track q
     WHERE t.track_key != input_track_key
       AND t.embedding IS NOT NULL
@@ -117,13 +117,13 @@ BEGIN
     RETURN QUERY
     SELECT
         t.id,
-        t.track_key,
-        t.title,
-        t.artist,
-        t.album,
+        t.track_key::text,
+        t.title::text,
+        t.artist::text,
+        t.album::text,
         t.playlist_count,
-        t.cover_image_url,
-        1 - (t.embedding <=> query_embedding) AS similarity
+        t.cover_image_url::text,
+        (1 - (t.embedding <=> query_embedding))::float AS similarity
     FROM track_embeddings t
     WHERE t.embedding IS NOT NULL
     ORDER BY t.embedding <=> query_embedding
@@ -159,13 +159,13 @@ BEGIN
     RETURN QUERY
     SELECT
         t.id,
-        t.track_key,
-        t.title,
-        t.artist,
-        t.album,
+        t.track_key::text,
+        t.title::text,
+        t.artist::text,
+        t.album::text,
         t.playlist_count,
-        t.cover_image_url,
-        1 - (t.itemtower_embedding <=> query_embedding) AS similarity
+        t.cover_image_url::text,
+        (1 - (t.itemtower_embedding <=> query_embedding))::float AS similarity
     FROM track_embeddings t
     WHERE t.itemtower_embedding IS NOT NULL
       AND (array_length(exclude_track_keys, 1) IS NULL
@@ -200,13 +200,13 @@ BEGIN
     RETURN QUERY
     SELECT
         t.id,
-        t.track_key,
-        t.title,
-        t.artist,
-        t.album,
+        t.track_key::text,
+        t.title::text,
+        t.artist::text,
+        t.album::text,
         t.playlist_count,
-        t.cover_image_url,
-        similarity(lower(t.title || ' ' || t.artist), lower(query_text)) AS similarity
+        t.cover_image_url::text,
+        similarity(lower(t.title || ' ' || t.artist), lower(query_text))::float AS similarity
     FROM track_embeddings t
     WHERE lower(t.title || ' ' || t.artist) % lower(query_text)
        OR lower(t.title) ILIKE query_text || '%'
