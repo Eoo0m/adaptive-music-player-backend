@@ -6,6 +6,7 @@
 DROP FUNCTION IF EXISTS match_tracks_by_projected_embedding(vector(512), int);
 DROP FUNCTION IF EXISTS match_tracks_by_key(text, int);
 DROP FUNCTION IF EXISTS match_tracks_by_embedding(vector(256), int);
+DROP FUNCTION IF EXISTS match_tracks_by_user_embedding(vector(128), text[], int);
 DROP FUNCTION IF EXISTS search_tracks_by_title(text, int);
 
 
@@ -24,13 +25,8 @@ RETURNS TABLE (
     cover_image_url text,
     similarity float
 )
-LANGUAGE plpgsql
+LANGUAGE sql
 AS $$
-BEGIN
-    -- Supabase 무료 플랜 기본 8초 → 30초로 확장
-    SET LOCAL statement_timeout = '30s';
-
-    RETURN QUERY
     SELECT
         t.track_key::text,
         t.title::text,
@@ -43,7 +39,6 @@ BEGIN
     WHERE t.projected_embedding IS NOT NULL
     ORDER BY t.projected_embedding <=> query_embedding
     LIMIT match_count;
-END;
 $$;
 
 
@@ -63,12 +58,8 @@ RETURNS TABLE (
     cover_image_url text,
     similarity float
 )
-LANGUAGE plpgsql
+LANGUAGE sql
 AS $$
-BEGIN
-    SET LOCAL statement_timeout = '30s';
-
-    RETURN QUERY
     WITH query_track AS (
         SELECT embedding
         FROM track_embeddings
@@ -89,7 +80,6 @@ BEGIN
       AND t.embedding IS NOT NULL
     ORDER BY t.embedding <=> q.embedding
     LIMIT match_count;
-END;
 $$;
 
 
@@ -109,12 +99,8 @@ RETURNS TABLE (
     cover_image_url text,
     similarity float
 )
-LANGUAGE plpgsql
+LANGUAGE sql
 AS $$
-BEGIN
-    SET LOCAL statement_timeout = '30s';
-
-    RETURN QUERY
     SELECT
         t.id,
         t.track_key::text,
@@ -128,14 +114,11 @@ BEGIN
     WHERE t.embedding IS NOT NULL
     ORDER BY t.embedding <=> query_embedding
     LIMIT match_count;
-END;
 $$;
 
 
 -- 4. match_tracks_by_user_embedding
 -- Two-Tower User 임베딩 기반 추천 (itemtower_embedding과 비교)
-DROP FUNCTION IF EXISTS match_tracks_by_user_embedding(vector(128), text[], int);
-
 CREATE OR REPLACE FUNCTION match_tracks_by_user_embedding(
     query_embedding vector(128),
     exclude_track_keys text[] DEFAULT '{}',
@@ -151,12 +134,8 @@ RETURNS TABLE (
     cover_image_url text,
     similarity float
 )
-LANGUAGE plpgsql
+LANGUAGE sql
 AS $$
-BEGIN
-    SET LOCAL statement_timeout = '30s';
-
-    RETURN QUERY
     SELECT
         t.id,
         t.track_key::text,
@@ -169,10 +148,9 @@ BEGIN
     FROM track_embeddings t
     WHERE t.itemtower_embedding IS NOT NULL
       AND (array_length(exclude_track_keys, 1) IS NULL
-           OR t.track_key != ALL(exclude_track_keys))
+           OR t.track_key::text != ALL(exclude_track_keys))
     ORDER BY t.itemtower_embedding <=> query_embedding
     LIMIT match_count;
-END;
 $$;
 
 
@@ -192,12 +170,8 @@ RETURNS TABLE (
     cover_image_url text,
     similarity float
 )
-LANGUAGE plpgsql
+LANGUAGE sql
 AS $$
-BEGIN
-    SET LOCAL statement_timeout = '30s';
-
-    RETURN QUERY
     SELECT
         t.id,
         t.track_key::text,
@@ -215,5 +189,4 @@ BEGIN
         CASE WHEN lower(t.title) ILIKE query_text || '%' THEN 0 ELSE 1 END,
         similarity(lower(t.title || ' ' || t.artist), lower(query_text)) DESC
     LIMIT match_count;
-END;
 $$;

@@ -18,6 +18,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from openai import APIError, APIConnectionError, RateLimitError, Timeout
 import asyncio
 import random
+import asyncpg
 
 # 로깅 설정
 logging.basicConfig(
@@ -54,6 +55,25 @@ supabase: Client = create_client(
     os.getenv("SUPABASE_URL"),
     os.getenv("SUPABASE_KEY")
 )
+
+# PostgreSQL 직접 연결 (asyncpg) - Supabase Edge 타임아웃 우회
+db_pool: asyncpg.Pool = None
+
+async def get_db_pool():
+    """asyncpg connection pool 가져오기"""
+    global db_pool
+    if db_pool is None:
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            raise ValueError("DATABASE_URL 환경 변수가 설정되지 않았습니다")
+        db_pool = await asyncpg.create_pool(
+            database_url,
+            min_size=2,
+            max_size=10,
+            command_timeout=30,
+        )
+        logger.info("✅ asyncpg connection pool created")
+    return db_pool
 
 # OpenAI 클라이언트
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -276,22 +296,31 @@ async def keep_alive_ping():
 
             logger.debug("🏓 DB Keep-alive ping...")
 
-            # DB 벡터 검색 ping (실제 쿼리와 유사한 정규화된 랜덤 벡터)
+            pool = await get_db_pool()
+
+            # DB 벡터 검색 ping (raw SQL)
             ping_vec = np.random.randn(512).astype(np.float32)
             ping_vec = ping_vec / np.linalg.norm(ping_vec)
-            _ = supabase.rpc(
-                "match_tracks_by_projected_embedding",
-                {
-                    "query_embedding": ping_vec.tolist(),
-                    "match_count": 10
-                }
-            ).execute()
+            await pool.fetch(
+                """
+                SELECT track_key, title, artist
+                FROM track_embeddings
+                WHERE projected_embedding IS NOT NULL
+                ORDER BY projected_embedding <=> $1::vector
+                LIMIT 10
+                """,
+                str(ping_vec.tolist())
+            )
 
-            # 제목 검색 ping (pg_trgm 캐시 유지)
-            _ = supabase.rpc(
-                "search_tracks_by_title",
-                {"query_text": "test", "match_count": 5}
-            ).execute()
+            # 제목 검색 ping (raw SQL)
+            await pool.fetch(
+                """
+                SELECT id, track_key, title, artist
+                FROM track_embeddings
+                WHERE lower(title) ILIKE 'test%'
+                LIMIT 5
+                """
+            )
 
             logger.debug("✅ DB Keep-alive ping successful")
 
@@ -311,6 +340,12 @@ async def startup_event():
     logger.info("🔥 Starting warmup sequence...")
 
     try:
+        # 0. asyncpg 연결 풀 초기화
+        logger.info("  ⏳ Initializing asyncpg connection pool...")
+        pool_start = time.time()
+        await get_db_pool()
+        logger.info(f"  ✅ asyncpg pool initialized ({time.time() - pool_start:.2f}s)")
+
         # 1. OpenAI API 워밍업 (small 모델 사용)
         logger.info("  ⏳ Warming up OpenAI API...")
         warmup_start = time.time()
@@ -320,31 +355,46 @@ async def startup_event():
         )
         logger.info(f"  ✅ OpenAI API warmed up ({time.time() - warmup_start:.2f}s)")
 
-        # 2. DB 벡터 검색 워밍업 (3-5회 다양한 벡터로 완전히 워밍업)
+        # 2. DB 벡터 검색 워밍업 (raw SQL)
         logger.info("  ⏳ Warming up database (vector search with 5 queries)...")
         warmup_start = time.time()
+        pool = await get_db_pool()
         for i in range(5):
-            # 매번 다른 랜덤 벡터 생성 (인덱스 다양한 영역 로드)
             warmup_vec = np.random.randn(512).astype(np.float32)
             warmup_vec = warmup_vec / np.linalg.norm(warmup_vec)
-            _ = supabase.rpc(
-                "match_tracks_by_projected_embedding",
-                {
-                    "query_embedding": warmup_vec.tolist(),
-                    "match_count": 10
-                }
-            ).execute()
+            await pool.fetch(
+                """
+                SELECT track_key, title, artist, album, playlist_count, cover_image_url,
+                       (1 - (projected_embedding <=> $1::vector))::float AS similarity
+                FROM track_embeddings
+                WHERE projected_embedding IS NOT NULL
+                ORDER BY projected_embedding <=> $1::vector
+                LIMIT 10
+                """,
+                str(warmup_vec.tolist())
+            )
         logger.info(f"  ✅ Database fully warmed up ({time.time() - warmup_start:.2f}s, 5 queries)")
 
-        # 3. 제목 검색 워밍업 (prefix + pg_trgm 인덱스 로드)
+        # 3. 제목 검색 워밍업 (raw SQL)
         logger.info("  ⏳ Warming up title search (prefix + pg_trgm)...")
         title_warmup_start = time.time()
-        warmup_queries = ["love", "sum", "night", "xyz123notfound"]  # prefix 매칭 + 폴백 테스트
+        warmup_queries = ["love", "sum", "night", "xyz123notfound"]
         for query in warmup_queries:
-            _ = supabase.rpc(
-                "search_tracks_by_title",
-                {"query_text": query, "match_count": 10}
-            ).execute()
+            await pool.fetch(
+                """
+                SELECT id, track_key, title, artist, album, playlist_count, cover_image_url,
+                       similarity(lower(title || ' ' || artist), lower($1))::float AS similarity
+                FROM track_embeddings
+                WHERE lower(title || ' ' || artist) % lower($1)
+                   OR lower(title) ILIKE $1 || '%'
+                   OR lower(artist) ILIKE $1 || '%'
+                ORDER BY
+                    CASE WHEN lower(title) ILIKE $1 || '%' THEN 0 ELSE 1 END,
+                    similarity(lower(title || ' ' || artist), lower($1)) DESC
+                LIMIT 10
+                """,
+                query
+            )
         logger.info(f"  ✅ Title search warmed up ({time.time() - title_warmup_start:.2f}s, {len(warmup_queries)} queries)")
 
         # 4. 키워드 검색 전체 파이프라인 워밍업 (실제 엔드포인트 호출)
@@ -376,7 +426,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """서버 종료 시 백그라운드 작업 정리"""
-    global keep_alive_task
+    global keep_alive_task, db_pool
 
     if keep_alive_task:
         keep_alive_task.cancel()
@@ -385,6 +435,10 @@ async def shutdown_event():
         except asyncio.CancelledError:
             pass
         logger.info("🛑 Keep-alive task stopped")
+
+    if db_pool:
+        await db_pool.close()
+        logger.info("🛑 asyncpg pool closed")
 
 
 # 요청 로깅 미들웨어
@@ -530,20 +584,39 @@ def get_openai_embedding_with_retry(keyword: str):
 
 
 
-def search_tracks_by_title(query_text: str, match_count: int = 10):
-    """제목 기반 트랙 검색 RPC"""
+async def search_tracks_by_title_raw(query_text: str, match_count: int = 10):
+    """제목 기반 트랙 검색 (raw SQL)"""
     logger.info(f"🔍 search_tracks_by_title: '{query_text}'")
     start_time = time.time()
-    response = supabase.rpc(
-        "search_tracks_by_title",
-        {
-            "query_text": query_text,
-            "match_count": match_count
-        }
-    ).execute()
+
+    pool = await get_db_pool()
+    rows = await pool.fetch(
+        """
+        SELECT
+            id,
+            track_key::text,
+            title::text,
+            artist::text,
+            album::text,
+            playlist_count,
+            cover_image_url::text,
+            similarity(lower(title || ' ' || artist), lower($1))::float AS similarity
+        FROM track_embeddings
+        WHERE lower(title || ' ' || artist) % lower($1)
+           OR lower(title) ILIKE $1 || '%'
+           OR lower(artist) ILIKE $1 || '%'
+        ORDER BY
+            CASE WHEN lower(title) ILIKE $1 || '%' THEN 0 ELSE 1 END,
+            similarity(lower(title || ' ' || artist), lower($1)) DESC
+        LIMIT $2
+        """,
+        query_text,
+        match_count
+    )
+
     elapsed = time.time() - start_time
-    logger.info(f"✅ search_tracks_by_title: {len(response.data or [])} tracks ({elapsed:.2f}s)")
-    return response
+    logger.info(f"✅ search_tracks_by_title: {len(rows)} tracks ({elapsed:.2f}s)")
+    return [dict(row) for row in rows]
 
 
 # ============== Search & Recommendation ==============
@@ -556,17 +629,14 @@ async def search_songs(request: SearchRequest):
         raise HTTPException(status_code=400, detail="Missing query")
 
     try:
-        response = search_tracks_by_title(
+        rows = await search_tracks_by_title_raw(
             query_text=request.query,
             match_count=10
         )
 
-        if response.data is None:
-            raise HTTPException(status_code=500, detail="Search failed")
-
         # 결과 포맷 변환
         results = []
-        for item in response.data:
+        for item in rows:
             results.append({
                 "track_id": item["id"],
                 "track_key": item["track_key"],
@@ -595,21 +665,42 @@ async def find_similar_tracks(request: RecommendRequest):
         raise HTTPException(status_code=400, detail="Missing track_key")
 
     try:
-        # 50곡 가져오기 (프론트엔드는 14곡만 표시)
-        response = supabase.rpc(
-            "match_tracks_by_key",
-            {
-                "input_track_key": request.track_key,
-                "match_count": 50,
-            },
-        ).execute()
+        pool = await get_db_pool()
 
-        if response.data is None:
+        # 50곡 가져오기 (raw SQL)
+        rows = await pool.fetch(
+            """
+            WITH query_track AS (
+                SELECT embedding
+                FROM track_embeddings
+                WHERE track_key = $1
+                LIMIT 1
+            )
+            SELECT
+                t.id,
+                t.track_key::text,
+                t.title::text,
+                t.artist::text,
+                t.album::text,
+                t.playlist_count,
+                t.cover_image_url::text,
+                (1 - (t.embedding <=> q.embedding))::float AS similarity
+            FROM track_embeddings t, query_track q
+            WHERE t.track_key != $1
+              AND t.embedding IS NOT NULL
+            ORDER BY t.embedding <=> q.embedding
+            LIMIT $2
+            """,
+            request.track_key,
+            50
+        )
+
+        if not rows:
             raise HTTPException(status_code=500, detail="Recommendation failed")
 
         # 결과 포맷 변환
         all_recommendations = []
-        for item in response.data:
+        for item in rows:
             all_recommendations.append({
                 "track_id": item["id"],
                 "track_key": item["track_key"],
@@ -651,21 +742,25 @@ async def recommend(request: RecommendAverageRequest):
     try:
         logger.info(f"🎯 Two-Tower recommend with {len(request.track_keys)} session tracks")
 
-        # 1. 모든 track_key의 임베딩을 한 번에 가져오기 (배치 쿼리)
-        response = (
-            supabase.table("track_embeddings")
-            .select("track_key, embedding")
-            .in_("track_key", request.track_keys)
-            .execute()
+        pool = await get_db_pool()
+
+        # 1. 모든 track_key의 임베딩을 한 번에 가져오기 (raw SQL)
+        rows = await pool.fetch(
+            """
+            SELECT track_key, embedding
+            FROM track_embeddings
+            WHERE track_key = ANY($1)
+            """,
+            request.track_keys
         )
 
         # track_key 순서대로 임베딩 정렬
+        import json
         embedding_map = {}
-        for row in response.data or []:
+        for row in rows:
             embedding = row.get("embedding")
             if embedding:
                 if isinstance(embedding, str):
-                    import json
                     embedding = json.loads(embedding)
                 embedding_map[row["track_key"]] = np.array(embedding, dtype=np.float32)
 
@@ -688,22 +783,35 @@ async def recommend(request: RecommendAverageRequest):
         user_embedding_list = user_embedding.squeeze(0).cpu().numpy().tolist()
         logger.info(f"✅ User embedding computed from {len(embeddings)} tracks")
 
-        # 3. DB에서 itemtower_embedding과 직접 비교하여 추천
-        response = supabase.rpc(
-            "match_tracks_by_user_embedding",
-            {
-                "query_embedding": user_embedding_list,
-                "exclude_track_keys": request.track_keys,
-                "match_count": request.num_recommendations,
-            },
-        ).execute()
+        # 3. DB에서 itemtower_embedding과 직접 비교하여 추천 (raw SQL)
+        rows = await pool.fetch(
+            """
+            SELECT
+                t.id,
+                t.track_key::text,
+                t.title::text,
+                t.artist::text,
+                t.album::text,
+                t.playlist_count,
+                t.cover_image_url::text,
+                (1 - (t.itemtower_embedding <=> $1::vector))::float AS similarity
+            FROM track_embeddings t
+            WHERE t.itemtower_embedding IS NOT NULL
+              AND t.track_key::text != ALL($2)
+            ORDER BY t.itemtower_embedding <=> $1::vector
+            LIMIT $3
+            """,
+            str(user_embedding_list),
+            request.track_keys,
+            request.num_recommendations
+        )
 
-        if not response.data:
+        if not rows:
             raise HTTPException(status_code=500, detail="No recommendations found")
 
         # 4. 결과 포맷 변환
         recommendations = []
-        for item in response.data:
+        for item in rows:
             recommendations.append({
                 "track_id": item["id"],
                 "track_key": item["track_key"],
@@ -761,19 +869,30 @@ async def search_by_keyword(request: KeywordSearchRequest):
             projected_embedding = projected_query.cpu().numpy()[0].tolist()
         timings["projection"] = time.time() - t_proj
 
-        # 3. 트랙 임베딩 직접 검색
+        # 3. 트랙 임베딩 직접 검색 (raw SQL)
         t_db = time.time()
-        response = supabase.rpc(
-            "match_tracks_by_projected_embedding",
-            {
-                "query_embedding": projected_embedding,
-                "match_count": 10
-            }
-        ).execute()
+        pool = await get_db_pool()
+        rows = await pool.fetch(
+            """
+            SELECT
+                t.track_key::text,
+                t.title::text,
+                t.artist::text,
+                t.album::text,
+                t.playlist_count,
+                t.cover_image_url::text,
+                (1 - (t.projected_embedding <=> $1::vector))::float AS similarity
+            FROM track_embeddings t
+            WHERE t.projected_embedding IS NOT NULL
+            ORDER BY t.projected_embedding <=> $1::vector
+            LIMIT 10
+            """,
+            str(projected_embedding)
+        )
         timings["db"] = time.time() - t_db
 
-        if not response.data:
-            logger.warning("No results from match_tracks_by_projected_embedding")
+        if not rows:
+            logger.warning("No results from projected_embedding search")
             return {"results": []}
 
         # 4. 결과 포맷 변환
@@ -787,7 +906,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
                 "cover_image_url": item["cover_image_url"],
                 "similarity": item.get("similarity", 0),
             }
-            for item in response.data
+            for item in rows
         ]
 
         logger.info(f"Keyword search completed: {len(results)} tracks in {sum(timings.values()):.2f}s")
