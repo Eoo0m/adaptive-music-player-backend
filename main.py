@@ -785,6 +785,7 @@ async def recommend(request: RecommendAverageRequest):
         logger.info(f"✅ User embedding computed from {len(embeddings)} tracks")
 
         # 3. DB에서 itemtower_embedding과 직접 비교하여 추천 (raw SQL)
+        t_db = time.time()
         rows = await pool.fetch(
             """
             SELECT
@@ -806,6 +807,8 @@ async def recommend(request: RecommendAverageRequest):
             request.track_keys,
             request.num_recommendations
         )
+        db_time = time.time() - t_db
+        logger.info(f"📊 /recommend DB query time: {db_time:.3f}s")
 
         if not rows:
             raise HTTPException(status_code=500, detail="No recommendations found")
