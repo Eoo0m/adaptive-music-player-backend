@@ -71,6 +71,7 @@ async def get_db_pool():
             min_size=2,
             max_size=10,
             command_timeout=30,
+            init=lambda conn: conn.execute("SET work_mem = '256MB'"),
         )
         logger.info("✅ asyncpg connection pool created")
     return db_pool
