@@ -145,6 +145,7 @@ async def get_db_pool():
             min_size=2,
             max_size=10,
             command_timeout=30,
+            statement_cache_size=0,  # PgBouncer transaction mode 호환
             init=lambda conn: conn.execute("SET work_mem = '256MB'"),
         )
         logger.info("✅ asyncpg connection pool created")
