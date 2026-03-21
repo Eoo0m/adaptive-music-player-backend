@@ -20,6 +20,80 @@ import asyncio
 import random
 import asyncpg
 
+# ============== MMR Reranking ==============
+
+def mmr_rerank(query_emb: np.ndarray, candidate_embs: np.ndarray, candidate_ids: list,
+               top_k: int, lambda_param: float = 0.7):
+    """
+    MMR (Maximal Marginal Relevance) reranking for diversity.
+
+    MMR = argmax [lambda * sim(q, d) - (1-lambda) * max(sim(d, d_selected))]
+
+    Args:
+        query_emb: query embedding (dim,)
+        candidate_embs: candidate embeddings (N, dim)
+        candidate_ids: track IDs of candidates
+        top_k: number of results to return
+        lambda_param: balance between relevance (1.0) and diversity (0.0)
+                     - 1.0 = pure relevance
+                     - 0.7 = slight diversity (default)
+                     - 0.5 = balanced
+                     - 0.0 = pure diversity
+
+    Returns:
+        selected_ids: list of selected track IDs
+        selected_scores: list of relevance scores
+    """
+    if len(candidate_ids) == 0:
+        return [], []
+
+    # Normalize embeddings for cosine similarity
+    query_emb = query_emb / (np.linalg.norm(query_emb) + 1e-10)
+    norms = np.linalg.norm(candidate_embs, axis=1, keepdims=True) + 1e-10
+    candidate_embs_norm = candidate_embs / norms
+
+    # Query-document similarities
+    query_sims = candidate_embs_norm @ query_emb  # (N,)
+
+    # Document-document similarity matrix
+    doc_sims = candidate_embs_norm @ candidate_embs_norm.T  # (N, N)
+
+    selected = []
+    selected_mask = np.zeros(len(candidate_ids), dtype=bool)
+    selected_scores = []
+
+    for _ in range(min(top_k, len(candidate_ids))):
+        if len(selected) == 0:
+            # First selection: highest relevance
+            best_idx = int(np.argmax(query_sims))
+        else:
+            # MMR score for remaining candidates
+            remaining_mask = ~selected_mask
+            remaining_indices = np.where(remaining_mask)[0]
+
+            if len(remaining_indices) == 0:
+                break
+
+            # Max similarity to already selected documents
+            selected_indices_local = np.array(selected)
+            max_sim_to_selected = np.max(doc_sims[remaining_indices][:, selected_indices_local], axis=1)
+
+            # MMR = lambda * relevance - (1-lambda) * max_similarity_to_selected
+            mmr = lambda_param * query_sims[remaining_indices] - (1 - lambda_param) * max_sim_to_selected
+
+            best_local_idx = int(np.argmax(mmr))
+            best_idx = remaining_indices[best_local_idx]
+
+        selected.append(best_idx)
+        selected_mask[best_idx] = True
+        selected_scores.append(float(query_sims[best_idx]))
+
+    # Map back to track IDs
+    selected_ids = [candidate_ids[i] for i in selected]
+
+    return selected_ids, selected_scores
+
+
 # 로깅 설정
 logging.basicConfig(
     level=logging.INFO,
@@ -261,10 +335,10 @@ playlist_dim = 64  # SimGCL 트랙 임베딩 차원
 playlist_clip_model = CaptionPlaylistCLIP(
     caption_dim=title_dim, playlist_dim=playlist_dim, out_dim=512
 ).to(device)
-playlist_clip_model.load_state_dict(torch.load("clip_simgcl.pt", map_location=device))
+playlist_clip_model.load_state_dict(torch.load("clip_best.pt", map_location=device))
 playlist_clip_model.eval()
 
-logger.info(f"✅ CLIP model (clip_simgcl.pt) loaded on {device}")
+logger.info(f"✅ CLIP model (clip_best.pt) loaded on {device}")
 
 # Two-Tower 모델 로드 (세션 기반 추천용)
 two_tower_model = TwoTowerModel(
@@ -519,7 +593,9 @@ class SearchRequest(BaseModel):
 
 class KeywordSearchRequest(BaseModel):
     keyword: str
-    top_k: Optional[int] = 200
+    top_k: Optional[int] = 10
+    mmr_lambda: Optional[float] = 0.7
+    mmr_candidates: Optional[int] = 200
 
 
 class RecommendRequest(BaseModel):
@@ -850,12 +926,12 @@ async def recommend(request: RecommendAverageRequest):
 
 @app.post("/search-by-keyword")
 async def search_by_keyword(request: KeywordSearchRequest):
-    """키워드 기반 검색 (트랙 임베딩 직접 검색)"""
+    """키워드 기반 검색 (CLIP + MMR 다양성 적용)"""
     if not request.keyword:
         raise HTTPException(status_code=400, detail="Missing keyword")
 
     try:
-        logger.info(f"Keyword search: '{request.keyword}'")
+        logger.info(f"Keyword search: '{request.keyword}' (top_k={request.top_k}, mmr_lambda={request.mmr_lambda})")
 
         # 타이밍 측정
         timings = {}
@@ -870,10 +946,10 @@ async def search_by_keyword(request: KeywordSearchRequest):
         keyword_tensor = torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
         with torch.no_grad():
             projected_query = playlist_clip_model.caption_proj(keyword_tensor)
-            projected_embedding = projected_query.cpu().numpy()[0].tolist()
+            projected_embedding_np = projected_query.cpu().numpy()[0]
         timings["projection"] = time.time() - t_proj
 
-        # 3. 트랙 임베딩 직접 검색 (raw SQL)
+        # 3. MMR 후보 가져오기 (raw SQL)
         t_db = time.time()
         pool = await get_db_pool()
         rows = await pool.fetch(
@@ -885,13 +961,14 @@ async def search_by_keyword(request: KeywordSearchRequest):
                 t.album::text,
                 t.playlist_count,
                 t.cover_image_url::text,
-                (1 - (t.projected_embedding <=> $1::vector))::float AS similarity
+                t.projected_embedding::text
             FROM track_embeddings t
             WHERE t.projected_embedding IS NOT NULL
             ORDER BY t.projected_embedding <=> $1::vector
-            LIMIT 10
+            LIMIT $2
             """,
-            str(projected_embedding)
+            str(projected_embedding_np.tolist()),
+            request.mmr_candidates
         )
         timings["db"] = time.time() - t_db
 
@@ -899,21 +976,49 @@ async def search_by_keyword(request: KeywordSearchRequest):
             logger.warning("No results from projected_embedding search")
             return {"results": []}
 
-        # 4. 결과 포맷 변환
-        results = [
-            {
-                "track_key": item["track_key"],
-                "track_name": item["title"],
-                "artist": item["artist"],
-                "album": item["album"],
-                "playlist_count": item["playlist_count"],
-                "cover_image_url": item["cover_image_url"],
-                "similarity": item.get("similarity", 0),
-            }
-            for item in rows
-        ]
+        # 4. MMR Reranking
+        t_mmr = time.time()
+        import json as json_module
+        candidate_ids = []
+        candidate_embs = []
+        candidate_data = {}
 
-        logger.info(f"Keyword search completed: {len(results)} tracks in {sum(timings.values()):.2f}s")
+        for row in rows:
+            track_key = row["track_key"]
+            emb_str = row["projected_embedding"]
+            if emb_str:
+                emb = np.array(json_module.loads(emb_str), dtype=np.float32)
+                candidate_ids.append(track_key)
+                candidate_embs.append(emb)
+                candidate_data[track_key] = {
+                    "track_key": track_key,
+                    "track_name": row["title"],
+                    "artist": row["artist"],
+                    "album": row["album"],
+                    "playlist_count": row["playlist_count"],
+                    "cover_image_url": row["cover_image_url"],
+                }
+
+        candidate_embs = np.array(candidate_embs)
+
+        # MMR reranking 적용
+        selected_ids, selected_scores = mmr_rerank(
+            projected_embedding_np,
+            candidate_embs,
+            candidate_ids,
+            top_k=request.top_k,
+            lambda_param=request.mmr_lambda
+        )
+        timings["mmr"] = time.time() - t_mmr
+
+        # 5. 결과 포맷 변환
+        results = []
+        for track_key, score in zip(selected_ids, selected_scores):
+            data = candidate_data[track_key]
+            data["similarity"] = score
+            results.append(data)
+
+        logger.info(f"Keyword search completed: {len(results)} tracks in {sum(timings.values()):.2f}s (MMR applied)")
         return {"results": results, "timings": timings}
 
     except Exception as e:
