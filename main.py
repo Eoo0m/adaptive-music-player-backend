@@ -596,7 +596,7 @@ class KeywordSearchRequest(BaseModel):
     keyword: str
     top_k: Optional[int] = 10
     mmr_lambda: Optional[float] = 0.7
-    mmr_candidates: Optional[int] = 200
+    mmr_candidates: Optional[int] = 50
 
 
 class RecommendRequest(BaseModel):
