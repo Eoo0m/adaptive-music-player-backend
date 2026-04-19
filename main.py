@@ -47,6 +47,8 @@ from models import playlist_clip_model
 from routes.search import router as search_router, search_by_keyword
 from routes.recommend import router as recommend_router
 from routes.log import router as log_router
+from routes.auth import router as auth_router
+from routes.favorites import router as favorites_router
 
 # FastAPI 앱 생성
 app = FastAPI(title="Dynplayer API")
@@ -285,6 +287,8 @@ async def health_check():
 app.include_router(search_router)
 app.include_router(recommend_router)
 app.include_router(log_router)
+app.include_router(auth_router)
+app.include_router(favorites_router)
 
 
 # ============== 서버 실행 ==============
