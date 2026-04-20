@@ -46,7 +46,7 @@ from utils import openai_client
 from models import playlist_clip_model
 from routes.search import router as search_router, search_by_keyword
 from routes.recommend import router as recommend_router
-from routes.log import router as log_router
+from routes.action_log import router as action_log_router
 from routes.auth import router as auth_router
 from routes.favorites import router as favorites_router
 
@@ -286,7 +286,7 @@ async def health_check():
 # 라우터 등록
 app.include_router(search_router)
 app.include_router(recommend_router)
-app.include_router(log_router)
+app.include_router(action_log_router)
 app.include_router(auth_router)
 app.include_router(favorites_router)
 
