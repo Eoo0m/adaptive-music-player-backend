@@ -49,6 +49,7 @@ from routes.recommend import router as recommend_router
 from routes.action_log import router as action_log_router
 from routes.auth import router as auth_router
 from routes.favorites import router as favorites_router
+from routes.home_feed import router as home_feed_router
 
 # FastAPI 앱 생성
 app = FastAPI(title="Dynplayer API")
@@ -289,6 +290,7 @@ app.include_router(recommend_router)
 app.include_router(action_log_router)
 app.include_router(auth_router)
 app.include_router(favorites_router)
+app.include_router(home_feed_router)
 
 
 # ============== 서버 실행 ==============
