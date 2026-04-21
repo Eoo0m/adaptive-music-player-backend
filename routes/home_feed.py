@@ -57,7 +57,7 @@ async def home_feed(user: dict = Depends(get_current_user)):
             WHERE t.track_key != $1
               AND t.embedding IS NOT NULL
             ORDER BY t.embedding <=> q.embedding
-            LIMIT 10
+            LIMIT 12
             """,
             seed["track_key"]
         )
