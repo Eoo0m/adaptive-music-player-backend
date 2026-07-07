@@ -1,4 +1,3 @@
-import time
 import logging
 import random
 import json as json_module
@@ -11,6 +10,7 @@ from typing import Optional
 from database import get_db_pool
 from models import playlist_clip_model, device
 from utils import get_openai_embedding_with_retry, mmr_rerank
+from telemetry import elapsed_ms, get_request_id, now_ms
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +38,12 @@ class RecommendRequest(BaseModel):
 
 async def search_tracks_by_title_raw(query_text: str, match_count: int = 10):
     """제목 기반 트랙 검색 (raw SQL)"""
-    logger.info(f"🔍 search_tracks_by_title: '{query_text}'")
-    start_time = time.time()
+    request_id = get_request_id()
+    start_ms = now_ms()
+    logger.info(f"[{request_id}] search_tracks_by_title start query='{query_text}'")
 
     pool = await get_db_pool()
+    db_start_ms = now_ms()
     rows = await pool.fetch(
         """
         SELECT
@@ -66,8 +68,10 @@ async def search_tracks_by_title_raw(query_text: str, match_count: int = 10):
         match_count
     )
 
-    elapsed = time.time() - start_time
-    logger.info(f"✅ search_tracks_by_title: {len(rows)} tracks ({elapsed:.2f}s)")
+    logger.info(
+        f"[{request_id}] search_tracks_by_title db={elapsed_ms(db_start_ms):.1f}ms "
+        f"total={elapsed_ms(start_ms):.1f}ms rows={len(rows)}"
+    )
     return [dict(row) for row in rows]
 
 
@@ -113,6 +117,9 @@ async def search_songs(request: SearchRequest):
 @router.post("/find-similar-tracks")
 async def find_similar_tracks(request: RecommendRequest):
     """track_key 기반 유사 음악 추천 (검색 결과 클릭 시 사용)"""
+    request_start_ms = now_ms()
+    request_id = get_request_id()
+
     if not request.track_key:
         raise HTTPException(status_code=400, detail="Missing track_key")
 
@@ -120,6 +127,7 @@ async def find_similar_tracks(request: RecommendRequest):
         pool = await get_db_pool()
 
         # 50곡 가져오기 (raw SQL)
+        db_start_ms = now_ms()
         rows = await pool.fetch(
             """
             WITH query_track AS (
@@ -146,11 +154,16 @@ async def find_similar_tracks(request: RecommendRequest):
             request.track_key,
             50
         )
+        logger.info(
+            f"[{request_id}] /find-similar-tracks vector_search="
+            f"{elapsed_ms(db_start_ms):.1f}ms rows={len(rows)}"
+        )
 
         if not rows:
             raise HTTPException(status_code=500, detail="Recommendation failed")
 
         # 결과 포맷 변환
+        format_start_ms = now_ms()
         all_recommendations = []
         for item in rows:
             all_recommendations.append({
@@ -170,8 +183,12 @@ async def find_similar_tracks(request: RecommendRequest):
 
         # 로그에 선택된 곡 정보 출력
         selected_titles = [f"{r['track']} - {r['artist']}" for r in recommendations]
-        logger.info(f"Recommend: {len(recommendations)} tracks selected from {len(all_recommendations)} for '{request.track_key}'")
-        logger.info(f"Selected tracks: {', '.join(selected_titles[:5])}{'...' if len(selected_titles) > 5 else ''}")
+        logger.info(
+            f"[{request_id}] /find-similar-tracks format={elapsed_ms(format_start_ms):.1f}ms "
+            f"total={elapsed_ms(request_start_ms):.1f}ms selected={len(recommendations)} "
+            f"candidates={len(all_recommendations)} track_key='{request.track_key}'"
+        )
+        logger.info(f"[{request_id}] selected tracks: {', '.join(selected_titles[:5])}{'...' if len(selected_titles) > 5 else ''}")
 
         return {
             "recommendations": recommendations,
@@ -191,30 +208,40 @@ async def find_similar_tracks(request: RecommendRequest):
 @router.post("/search-by-keyword")
 async def search_by_keyword(request: KeywordSearchRequest):
     """키워드 기반 검색 (CLIP + MMR 다양성 적용)"""
+    request_start_ms = now_ms()
+    request_id = get_request_id()
+
     if not request.keyword:
         raise HTTPException(status_code=400, detail="Missing keyword")
 
     try:
-        logger.info(f"Keyword search: '{request.keyword}' (top_k={request.top_k}, mmr_lambda={request.mmr_lambda})")
+        logger.info(
+            f"[{request_id}] /search-by-keyword start keyword='{request.keyword}' "
+            f"top_k={request.top_k} mmr_lambda={request.mmr_lambda}"
+        )
 
         # 타이밍 측정
         timings = {}
 
         # 1. OpenAI 임베딩
-        t_openai = time.time()
+        t_openai = now_ms()
         keyword_embedding = get_openai_embedding_with_retry(request.keyword)
-        timings["openai"] = time.time() - t_openai
+        openai_ms = elapsed_ms(t_openai)
+        timings["openai"] = openai_ms / 1000
+        logger.info(f"[{request_id}] /search-by-keyword openai={openai_ms:.1f}ms")
 
         # 2. CLIP projection (텍스트 → 512차원 트랙 임베딩 공간)
-        t_proj = time.time()
+        t_proj = now_ms()
         keyword_tensor = torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
         with torch.no_grad():
             projected_query = playlist_clip_model.caption_proj(keyword_tensor)
             projected_embedding_np = projected_query.cpu().numpy()[0]
-        timings["projection"] = time.time() - t_proj
+        projection_ms = elapsed_ms(t_proj)
+        timings["projection"] = projection_ms / 1000
+        logger.info(f"[{request_id}] /search-by-keyword projection={projection_ms:.1f}ms")
 
         # 3. MMR 후보 가져오기 (raw SQL)
-        t_db = time.time()
+        t_db = now_ms()
         pool = await get_db_pool()
         rows = await pool.fetch(
             """
@@ -234,14 +261,16 @@ async def search_by_keyword(request: KeywordSearchRequest):
             str(projected_embedding_np.tolist()),
             request.mmr_candidates
         )
-        timings["db"] = time.time() - t_db
+        db_ms = elapsed_ms(t_db)
+        timings["db"] = db_ms / 1000
+        logger.info(f"[{request_id}] /search-by-keyword db={db_ms:.1f}ms rows={len(rows)}")
 
         if not rows:
             logger.warning("No results from projected_embedding search")
             return {"results": []}
 
         # 4. MMR Reranking
-        t_mmr = time.time()
+        t_mmr = now_ms()
         candidate_ids = []
         candidate_embs = []
         candidate_data = {}
@@ -272,16 +301,24 @@ async def search_by_keyword(request: KeywordSearchRequest):
             top_k=request.top_k,
             lambda_param=request.mmr_lambda
         )
-        timings["mmr"] = time.time() - t_mmr
+        mmr_ms = elapsed_ms(t_mmr)
+        timings["mmr"] = mmr_ms / 1000
+        logger.info(f"[{request_id}] /search-by-keyword mmr={mmr_ms:.1f}ms")
 
         # 5. 결과 포맷 변환
+        format_start_ms = now_ms()
         results = []
         for track_key, score in zip(selected_ids, selected_scores):
             data = candidate_data[track_key]
             data["similarity"] = score
             results.append(data)
+        format_ms = elapsed_ms(format_start_ms)
+        timings["format"] = format_ms / 1000
 
-        logger.info(f"Keyword search completed: {len(results)} tracks in {sum(timings.values()):.2f}s (MMR applied)")
+        logger.info(
+            f"[{request_id}] /search-by-keyword format={format_ms:.1f}ms "
+            f"total={elapsed_ms(request_start_ms):.1f}ms results={len(results)}"
+        )
         return {"results": results, "timings": timings}
 
     except Exception as e:

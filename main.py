@@ -50,6 +50,7 @@ from routes.action_log import router as action_log_router
 from routes.auth import router as auth_router
 from routes.favorites import router as favorites_router
 from routes.home_feed import router as home_feed_router
+from telemetry import elapsed_ms, new_request_id, now_ms, request_id_var
 
 # FastAPI 앱 생성
 app = FastAPI(title="Dynplayer API")
@@ -217,11 +218,32 @@ async def shutdown_event():
 # 요청 로깅 미들웨어
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
+    request_id = new_request_id()
+    token = request_id_var.set(request_id)
+    start_ms = now_ms()
 
-    logger.debug(f"{request.method} {request.url.path} - {response.status_code} - {process_time:.2f}s")
+    logger.info(f"[{request_id}] IN {request.method} {request.url.path}")
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        total_ms = elapsed_ms(start_ms)
+        logger.exception(
+            f"[{request_id}] ERROR {request.method} {request.url.path} "
+            f"total={total_ms:.1f}ms"
+        )
+        raise
+    finally:
+        request_id_var.reset(token)
+
+    total_ms = elapsed_ms(start_ms)
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Response-Time-ms"] = f"{total_ms:.1f}"
+
+    logger.info(
+        f"[{request_id}] OUT {request.method} {request.url.path} "
+        f"status={response.status_code} total={total_ms:.1f}ms"
+    )
 
     return response
 
