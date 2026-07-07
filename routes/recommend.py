@@ -18,6 +18,7 @@ router = APIRouter()
 class RecommendAverageRequest(BaseModel):
     track_keys: List[str]
     num_recommendations: Optional[int] = 5
+    exclude_track_keys: Optional[List[str]] = None
 
 
 @router.post("/recommend")
@@ -30,7 +31,18 @@ async def recommend(request: RecommendAverageRequest):
         raise HTTPException(status_code=400, detail="Missing track_keys")
 
     try:
-        logger.info(f"[{request_id}] /recommend start session_tracks={len(request.track_keys)}")
+        target_count = max(1, request.num_recommendations or 5)
+        excluded_keys = set(request.exclude_track_keys or [])
+        candidate_limit = min(
+            max(target_count * 5, target_count + len(excluded_keys) + 20),
+            300
+        )
+
+        logger.info(
+            f"[{request_id}] /recommend start session_tracks={len(request.track_keys)} "
+            f"exclude_tracks={len(excluded_keys)} target={target_count} "
+            f"candidate_limit={candidate_limit}"
+        )
 
         pool_start_ms = now_ms()
         pool = await get_db_pool()
@@ -105,7 +117,7 @@ async def recommend(request: RecommendAverageRequest):
             """,
             str(user_embedding_list),
             request.track_keys,
-            request.num_recommendations
+            candidate_limit
         )
         logger.info(
             f"[{request_id}] /recommend vector_search="
@@ -117,8 +129,18 @@ async def recommend(request: RecommendAverageRequest):
 
         # 4. 결과 포맷 변환
         format_start_ms = now_ms()
+        fresh_rows = [
+            item for item in rows
+            if item["track_key"] not in excluded_keys
+        ]
+        reused_rows = [
+            item for item in rows
+            if item["track_key"] in excluded_keys
+        ]
+        selected_rows = (fresh_rows + reused_rows)[:target_count]
+
         recommendations = []
-        for item in rows:
+        for item in selected_rows:
             recommendations.append({
                 "track_id": item["id"],
                 "track_key": item["track_key"],
@@ -132,7 +154,8 @@ async def recommend(request: RecommendAverageRequest):
 
         logger.info(
             f"[{request_id}] /recommend format={elapsed_ms(format_start_ms):.1f}ms "
-            f"total={elapsed_ms(request_start_ms):.1f}ms recommendations={len(recommendations)}"
+            f"total={elapsed_ms(request_start_ms):.1f}ms recommendations={len(recommendations)} "
+            f"fresh={len(fresh_rows)} reused={max(0, len(selected_rows) - len(fresh_rows))}"
         )
 
         return {
