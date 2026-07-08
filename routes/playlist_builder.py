@@ -254,6 +254,11 @@ class PlaylistBuilderFinishRequest(BaseModel):
     selected_track_keys: List[str]   # 유저가 선택한 6곡
 
 
+class PlaylistSaveRequest(BaseModel):
+    name: str
+    track_keys: List[str]
+
+
 
 
 # ============== API Endpoints ==============
@@ -582,3 +587,99 @@ async def playlist_builder_finish(request: PlaylistBuilderFinishRequest, user: d
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/save")
+async def playlist_builder_save(request: PlaylistSaveRequest, user: dict = Depends(get_current_user)):
+    """완성된 플레이리스트 DB 저장"""
+    request_id = get_request_id()
+    if not request.name or not request.track_keys:
+        raise HTTPException(status_code=400, detail="이름과 트랙 목록이 필요합니다.")
+    try:
+        pool = await get_db_pool()
+        row = await pool.fetchrow(
+            """
+            INSERT INTO user_playlists (user_id, name, track_keys, created_at)
+            VALUES ($1::uuid, $2, $3, NOW())
+            RETURNING id, created_at
+            """,
+            user["user_id"], request.name, request.track_keys
+        )
+        logger.info(f"[{request_id}] Playlist saved: id={row['id']} user={user['user_id']}")
+        return {"success": True, "playlist_id": row["id"], "created_at": row["created_at"].isoformat()}
+    except Exception as e:
+        logger.error(f"[{request_id}] /playlist-builder/save error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/my-playlists")
+async def get_my_playlists(user: dict = Depends(get_current_user)):
+    """저장된 플레이리스트 목록 + 트랙 전체 데이터"""
+    request_id = get_request_id()
+    try:
+        pool = await get_db_pool()
+        rows = await pool.fetch(
+            """
+            SELECT id, name, track_keys, created_at
+            FROM user_playlists
+            WHERE user_id = $1::uuid
+            ORDER BY created_at DESC
+            """,
+            user["user_id"]
+        )
+
+        playlists = []
+        for row in rows:
+            track_keys = row["track_keys"] or []
+            track_rows = await pool.fetch(
+                """
+                SELECT track_key::text, title::text, artist::text, album::text,
+                       cover_image_url::text, playlist_count
+                FROM track_embeddings
+                WHERE track_key = ANY($1::text[])
+                """,
+                track_keys
+            )
+            track_map = {t["track_key"]: t for t in track_rows}
+            tracks = []
+            for key in track_keys:
+                t = track_map.get(key)
+                if t:
+                    tracks.append({
+                        "track_key": t["track_key"],
+                        "track_name": t["title"],
+                        "artist": t["artist"],
+                        "album": t["album"],
+                        "cover_image_url": t["cover_image_url"],
+                        "playlist_count": t["playlist_count"],
+                    })
+            playlists.append({
+                "id": row["id"],
+                "name": row["name"],
+                "tracks": tracks,
+                "created_at": row["created_at"].isoformat(),
+            })
+
+        return {"playlists": playlists}
+    except Exception as e:
+        logger.error(f"[{request_id}] /playlist-builder/my-playlists error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/playlist/{playlist_id}")
+async def delete_playlist(playlist_id: int, user: dict = Depends(get_current_user)):
+    """플레이리스트 삭제"""
+    request_id = get_request_id()
+    try:
+        pool = await get_db_pool()
+        result = await pool.execute(
+            "DELETE FROM user_playlists WHERE id = $1 AND user_id = $2::uuid",
+            playlist_id, user["user_id"]
+        )
+        if result == "DELETE 0":
+            raise HTTPException(status_code=404, detail="플레이리스트를 찾을 수 없습니다.")
+        logger.info(f"[{request_id}] Playlist deleted: id={playlist_id}")
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{request_id}] /playlist-builder/delete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
