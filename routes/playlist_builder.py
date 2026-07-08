@@ -1,0 +1,518 @@
+import logging
+import random
+import json as json_module
+import numpy as np
+import torch
+from datetime import datetime
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from typing import Optional, List
+
+from database import get_db_pool
+from models import playlist_clip_model, device
+from utils import get_openai_embedding_with_retry, mmr_rerank
+from routes.auth import get_current_user
+from telemetry import elapsed_ms, get_request_id, now_ms
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/playlist-builder")
+
+
+# ============== 시간대 감지 ==============
+
+def get_time_of_day() -> str:
+    """현재 시간 기준 시간대 반환 (KST 기준)"""
+    hour = datetime.now().hour  # 서버가 KST라면 그대로, 아니면 UTC+9 처리
+    if 0 <= hour < 6:
+        return "새벽"
+    elif 6 <= hour < 12:
+        return "아침"
+    elif 12 <= hour < 18:
+        return "오후"
+    else:
+        return "밤"
+
+
+# ============== 키워드 → 임베딩 + 후보 100곡 가져오기 ==============
+
+async def fetch_keyword_candidates(keyword: str, limit: int = 100):
+    """키워드로 projected_embedding 기준 상위 limit곡 가져오기"""
+    keyword_embedding = get_openai_embedding_with_retry(keyword)
+
+    keyword_tensor = torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
+    with torch.no_grad():
+        projected_query = playlist_clip_model.caption_proj(keyword_tensor)
+        projected_embedding_np = projected_query.cpu().numpy()[0]
+
+    pool = await get_db_pool()
+    rows = await pool.fetch(
+        """
+        SELECT
+            t.track_key::text,
+            t.title::text,
+            t.artist::text,
+            t.album::text,
+            t.playlist_count,
+            t.cover_image_url::text,
+            t.projected_embedding::text
+        FROM track_embeddings t
+        WHERE t.projected_embedding IS NOT NULL
+        ORDER BY t.projected_embedding <=> $1::vector
+        LIMIT $2
+        """,
+        str(projected_embedding_np.tolist()),
+        limit
+    )
+
+    candidates = []
+    embeddings = []
+    for row in rows:
+        emb_str = row["projected_embedding"]
+        if emb_str:
+            emb = np.array(json_module.loads(emb_str), dtype=np.float32)
+            candidates.append({
+                "track_key": row["track_key"],
+                "track_name": row["title"],
+                "artist": row["artist"],
+                "album": row["album"],
+                "playlist_count": row["playlist_count"],
+                "cover_image_url": row["cover_image_url"],
+            })
+            embeddings.append(emb)
+
+    return candidates, np.array(embeddings), projected_embedding_np
+
+
+async def fetch_similar_candidates(track_key: str, limit: int = 50):
+    """track_key 기반 유사곡 limit개 가져오기"""
+    pool = await get_db_pool()
+    rows = await pool.fetch(
+        """
+        WITH query_track AS (
+            SELECT embedding
+            FROM track_embeddings
+            WHERE track_key = $1
+            LIMIT 1
+        )
+        SELECT
+            t.track_key::text,
+            t.title::text,
+            t.artist::text,
+            t.album::text,
+            t.playlist_count,
+            t.cover_image_url::text,
+            (1 - (t.embedding <=> q.embedding))::float AS similarity
+        FROM track_embeddings t, query_track q
+        WHERE t.track_key != $1
+          AND t.embedding IS NOT NULL
+        ORDER BY t.embedding <=> q.embedding
+        LIMIT $2
+        """,
+        track_key,
+        limit
+    )
+
+    candidates = []
+    for row in rows:
+        candidates.append({
+            "track_key": row["track_key"],
+            "track_name": row["title"],
+            "artist": row["artist"],
+            "album": row["album"],
+            "playlist_count": row["playlist_count"],
+            "cover_image_url": row["cover_image_url"],
+            "similarity": row["similarity"],
+        })
+    return candidates
+
+
+async def fetch_projected_embeddings(track_keys: List[str]):
+    """track_key 목록의 projected_embedding 가져오기"""
+    if not track_keys:
+        return {}
+    pool = await get_db_pool()
+    rows = await pool.fetch(
+        """
+        SELECT track_key::text, projected_embedding::text
+        FROM track_embeddings
+        WHERE track_key = ANY($1::text[])
+          AND projected_embedding IS NOT NULL
+        """,
+        track_keys
+    )
+    result = {}
+    for row in rows:
+        emb_str = row["projected_embedding"]
+        if emb_str:
+            result[row["track_key"]] = np.array(json_module.loads(emb_str), dtype=np.float32)
+    return result
+
+
+def apply_mmr_with_seen_penalty(
+    query_emb: np.ndarray,
+    keyword_candidates: list,
+    keyword_embs: np.ndarray,
+    seen_track_keys: set,
+    top_k: int = 12,
+    lambda_param: float = 0.65,
+    seen_penalty: float = 0.3,
+):
+    """
+    MMR 적용. seen_track_keys에 있는 곡은 relevance 점수에 패널티 적용.
+    """
+    if len(keyword_candidates) == 0:
+        return []
+
+    candidate_ids = [c["track_key"] for c in keyword_candidates]
+    candidate_embs = keyword_embs
+
+    # Normalize
+    query_emb_n = query_emb / (np.linalg.norm(query_emb) + 1e-10)
+    norms = np.linalg.norm(candidate_embs, axis=1, keepdims=True) + 1e-10
+    candidate_embs_norm = candidate_embs / norms
+
+    query_sims = candidate_embs_norm @ query_emb_n  # (N,)
+
+    # seen 곡에 패널티
+    for i, cid in enumerate(candidate_ids):
+        if cid in seen_track_keys:
+            query_sims[i] *= seen_penalty
+
+    doc_sims = candidate_embs_norm @ candidate_embs_norm.T  # (N, N)
+
+    selected = []
+    selected_mask = np.zeros(len(candidate_ids), dtype=bool)
+    selected_scores = []
+
+    for _ in range(min(top_k, len(candidate_ids))):
+        if len(selected) == 0:
+            best_idx = int(np.argmax(query_sims))
+        else:
+            remaining_mask = ~selected_mask
+            remaining_indices = np.where(remaining_mask)[0]
+            if len(remaining_indices) == 0:
+                break
+            selected_indices_local = np.array(selected)
+            max_sim_to_selected = np.max(
+                doc_sims[remaining_indices][:, selected_indices_local], axis=1
+            )
+            mmr = lambda_param * query_sims[remaining_indices] - (1 - lambda_param) * max_sim_to_selected
+            best_local_idx = int(np.argmax(mmr))
+            best_idx = remaining_indices[best_local_idx]
+
+        selected.append(best_idx)
+        selected_mask[best_idx] = True
+        selected_scores.append(float(query_sims[best_idx]))
+
+    return [keyword_candidates[i] for i in selected]
+
+
+# ============== Pydantic Models ==============
+
+class PlaylistBuilderStartRequest(BaseModel):
+    pass  # 시간대 자동감지
+
+
+class PlaylistBuilderNextRequest(BaseModel):
+    selected_track_key: str          # 유저가 선택한 곡
+    keyword_track_keys: List[str]    # 초기 키워드 곡 track_key 목록 (풀 유지용)
+    seen_track_keys: List[str]       # 지금까지 보여준 모든 곡 track_key
+    step: int                        # 현재 단계 (1~5)
+    keyword: str                     # 원래 키워드 (임베딩 재사용)
+
+
+class PlaylistBuilderFinishRequest(BaseModel):
+    selected_track_keys: List[str]   # 유저가 선택한 6곡
+
+
+
+
+# ============== API Endpoints ==============
+
+@router.post("/start")
+async def playlist_builder_start(user: dict = Depends(get_current_user)):
+    """
+    플레이리스트 빌더 시작.
+    - 현재 시간대 감지 (새벽/아침/오후/밤)
+    - '여름 {시간대}' 키워드로 100곡 검색
+    - MMR로 12곡 선별 (6x2 그리드)
+    - 키워드 풀(100곡) track_key도 반환 (이후 next 단계에서 재사용)
+    """
+    request_id = get_request_id()
+    start_ms = now_ms()
+
+    time_of_day = get_time_of_day()
+    keyword = f"여름 {time_of_day}"
+    user_name = user.get("display_name") or user.get("email", "").split("@")[0]
+
+    logger.info(f"[{request_id}] /playlist-builder/start keyword='{keyword}' user={user.get('user_id')}")
+
+    try:
+        candidates, embs, query_emb = await fetch_keyword_candidates(keyword, limit=100)
+
+        if len(candidates) == 0:
+            raise HTTPException(status_code=500, detail="키워드 검색 결과가 없습니다.")
+
+        # MMR로 12곡 선별
+        selected = apply_mmr_with_seen_penalty(
+            query_emb, candidates, embs,
+            seen_track_keys=set(),
+            top_k=12,
+            lambda_param=0.65,
+        )
+
+        # 키워드 풀 전체 track_key 목록
+        keyword_pool_keys = [c["track_key"] for c in candidates]
+
+        logger.info(
+            f"[{request_id}] /playlist-builder/start done "
+            f"total={elapsed_ms(start_ms):.1f}ms keyword='{keyword}' candidates={len(candidates)} selected={len(selected)}"
+        )
+
+        return {
+            "time_of_day": time_of_day,
+            "keyword": keyword,
+            "user_name": user_name,
+            "candidates": selected,           # 12곡 (그리드에 표시)
+            "keyword_pool_keys": keyword_pool_keys,  # 100곡 풀 (next 단계 재사용)
+            "keyword_pool_data": candidates,   # 100곡 데이터 (next에서 임베딩 재조회 대신 사용)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{request_id}] /playlist-builder/start error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/next")
+async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict = Depends(get_current_user)):
+    """
+    다음 후보 12곡 선별.
+    - 선택한 곡의 유사곡 50곡 + 키워드 풀 합산
+    - 중복 제거 후 projected_embedding 기준 MMR
+    - 이미 본 곡은 후순위 패널티
+    """
+    request_id = get_request_id()
+    start_ms = now_ms()
+
+    logger.info(
+        f"[{request_id}] /playlist-builder/next "
+        f"selected='{request.selected_track_key}' step={request.step}"
+    )
+
+    try:
+        # 1. 선택한 곡의 유사곡 50곡
+        similar = await fetch_similar_candidates(request.selected_track_key, limit=50)
+
+        # 2. 키워드 풀 track_key들의 데이터 조회
+        pool = await get_db_pool()
+        keyword_rows = await pool.fetch(
+            """
+            SELECT
+                t.track_key::text,
+                t.title::text,
+                t.artist::text,
+                t.album::text,
+                t.playlist_count,
+                t.cover_image_url::text
+            FROM track_embeddings t
+            WHERE t.track_key = ANY($1::text[])
+            """,
+            request.keyword_track_keys
+        )
+        keyword_data = {
+            row["track_key"]: {
+                "track_key": row["track_key"],
+                "track_name": row["title"],
+                "artist": row["artist"],
+                "album": row["album"],
+                "playlist_count": row["playlist_count"],
+                "cover_image_url": row["cover_image_url"],
+            }
+            for row in keyword_rows
+        }
+
+        # 3. 합산 후 중복 제거 (similar 우선, keyword 추가)
+        seen_keys = set()
+        merged = []
+        for s in similar:
+            if s["track_key"] not in seen_keys:
+                seen_keys.add(s["track_key"])
+                merged.append({
+                    "track_key": s["track_key"],
+                    "track_name": s["track_name"],
+                    "artist": s["artist"],
+                    "album": s["album"],
+                    "playlist_count": s["playlist_count"],
+                    "cover_image_url": s["cover_image_url"],
+                })
+        for key in request.keyword_track_keys:
+            if key not in seen_keys and key in keyword_data:
+                seen_keys.add(key)
+                merged.append(keyword_data[key])
+
+        if len(merged) == 0:
+            raise HTTPException(status_code=500, detail="후보 곡이 없습니다.")
+
+        # 4. projected_embedding 가져오기
+        merged_keys = [c["track_key"] for c in merged]
+        emb_map = await fetch_projected_embeddings(merged_keys)
+
+        # embedding이 있는 것만 필터
+        filtered_candidates = []
+        filtered_embs = []
+        for c in merged:
+            emb = emb_map.get(c["track_key"])
+            if emb is not None:
+                filtered_candidates.append(c)
+                filtered_embs.append(emb)
+
+        if len(filtered_candidates) == 0:
+            raise HTTPException(status_code=500, detail="임베딩 데이터가 없습니다.")
+
+        filtered_embs_np = np.array(filtered_embs)
+
+        # 5. 선택한 곡의 projected_embedding을 query로 사용
+        selected_emb_map = await fetch_projected_embeddings([request.selected_track_key])
+        query_emb = selected_emb_map.get(request.selected_track_key)
+
+        if query_emb is None:
+            # fallback: 키워드 임베딩 재생성
+            keyword_embedding = get_openai_embedding_with_retry(request.keyword)
+            keyword_tensor = torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
+            with torch.no_grad():
+                projected_query = playlist_clip_model.caption_proj(keyword_tensor)
+                query_emb = projected_query.cpu().numpy()[0]
+
+        # 6. MMR 적용 (이미 본 곡 패널티)
+        seen_set = set(request.seen_track_keys)
+        selected = apply_mmr_with_seen_penalty(
+            query_emb,
+            filtered_candidates,
+            filtered_embs_np,
+            seen_track_keys=seen_set,
+            top_k=12,
+            lambda_param=0.65,
+            seen_penalty=0.3,
+        )
+
+        logger.info(
+            f"[{request_id}] /playlist-builder/next done "
+            f"total={elapsed_ms(start_ms):.1f}ms merged={len(merged)} selected={len(selected)}"
+        )
+
+        return {
+            "candidates": selected,  # 12곡
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{request_id}] /playlist-builder/next error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/finish")
+async def playlist_builder_finish(request: PlaylistBuilderFinishRequest, user: dict = Depends(get_current_user)):
+    """
+    플레이리스트 완성.
+    - 선택한 6곡을 기반으로 각 곡의 유사곡 취합
+    - 랜덤 6곡 선별 → 선택 6곡 + 유사 6곡 = 총 12곡
+    """
+    request_id = get_request_id()
+    start_ms = now_ms()
+
+    logger.info(
+        f"[{request_id}] /playlist-builder/finish "
+        f"selected_count={len(request.selected_track_keys)}"
+    )
+
+    if len(request.selected_track_keys) == 0:
+        raise HTTPException(status_code=400, detail="선택된 곡이 없습니다.")
+
+    try:
+        # 선택한 6곡의 정보 가져오기
+        pool = await get_db_pool()
+        selected_rows = await pool.fetch(
+            """
+            SELECT
+                t.track_key::text,
+                t.title::text,
+                t.artist::text,
+                t.album::text,
+                t.playlist_count,
+                t.cover_image_url::text
+            FROM track_embeddings t
+            WHERE t.track_key = ANY($1::text[])
+            """,
+            request.selected_track_keys
+        )
+
+        selected_data = {row["track_key"]: dict(row) for row in selected_rows}
+
+        # 순서 유지
+        selected_tracks = []
+        for key in request.selected_track_keys:
+            if key in selected_data:
+                row = selected_data[key]
+                selected_tracks.append({
+                    "track_key": row["track_key"],
+                    "track_name": row["title"],
+                    "artist": row["artist"],
+                    "album": row["album"],
+                    "playlist_count": row["playlist_count"],
+                    "cover_image_url": row["cover_image_url"],
+                })
+
+        # 각 선택한 곡에서 유사곡 15개씩 가져오기 (총 pool)
+        selected_keys_set = set(request.selected_track_keys)
+        similar_pool = {}
+
+        for track_key in request.selected_track_keys:
+            similar = await fetch_similar_candidates(track_key, limit=15)
+            for s in similar:
+                key = s["track_key"]
+                if key not in selected_keys_set and key not in similar_pool:
+                    similar_pool[key] = s
+
+        similar_list = list(similar_pool.values())
+
+        # 랜덤 6곡 선택
+        pick_count = min(6, len(similar_list))
+        filler_tracks_raw = random.sample(similar_list, pick_count) if len(similar_list) > pick_count else similar_list
+
+        filler_tracks = []
+        for s in filler_tracks_raw:
+            filler_tracks.append({
+                "track_key": s["track_key"],
+                "track_name": s["track_name"],
+                "artist": s["artist"],
+                "album": s["album"],
+                "playlist_count": s["playlist_count"],
+                "cover_image_url": s["cover_image_url"],
+            })
+
+        # 최종 12곡: 선택 6곡 + 유사 6곡
+        playlist = selected_tracks + filler_tracks
+
+        logger.info(
+            f"[{request_id}] /playlist-builder/finish done "
+            f"total={elapsed_ms(start_ms):.1f}ms "
+            f"selected={len(selected_tracks)} filler={len(filler_tracks)} total={len(playlist)}"
+        )
+
+        return {
+            "playlist": playlist,
+            "selected_tracks": selected_tracks,
+            "filler_tracks": filler_tracks,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{request_id}] /playlist-builder/finish error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+

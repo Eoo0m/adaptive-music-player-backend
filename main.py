@@ -50,6 +50,7 @@ from routes.action_log import router as action_log_router
 from routes.auth import router as auth_router
 from routes.favorites import router as favorites_router
 from routes.home_feed import router as home_feed_router
+from routes.playlist_builder import router as playlist_builder_router
 from telemetry import elapsed_ms, new_request_id, now_ms, request_id_var
 
 # FastAPI 앱 생성
@@ -313,6 +314,7 @@ app.include_router(action_log_router)
 app.include_router(auth_router)
 app.include_router(favorites_router)
 app.include_router(home_feed_router)
+app.include_router(playlist_builder_router)
 
 
 # ============== 서버 실행 ==============
