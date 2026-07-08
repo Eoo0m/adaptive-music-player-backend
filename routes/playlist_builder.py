@@ -239,7 +239,7 @@ def apply_mmr_with_seen_penalty(
 # ============== Pydantic Models ==============
 
 class PlaylistBuilderStartRequest(BaseModel):
-    pass  # 시간대 자동감지
+    seen_track_keys: List[str] = []  # 새로고침 시 이미 본 곡 목록
 
 
 class PlaylistBuilderNextRequest(BaseModel):
@@ -264,7 +264,7 @@ class PlaylistSaveRequest(BaseModel):
 # ============== API Endpoints ==============
 
 @router.post("/start")
-async def playlist_builder_start(user: dict = Depends(get_current_user)):
+async def playlist_builder_start(request: PlaylistBuilderStartRequest = PlaylistBuilderStartRequest(), user: dict = Depends(get_current_user)):
     """
     플레이리스트 빌더 시작.
     - 현재 시간대 감지 (새벽/아침/오후/밤)
@@ -288,10 +288,10 @@ async def playlist_builder_start(user: dict = Depends(get_current_user)):
         if len(candidates) == 0:
             raise HTTPException(status_code=500, detail="키워드 검색 결과가 없습니다.")
 
-        # MMR로 12곡 선별
+        # MMR로 12곡 선별 (새로고침 시 seen_track_keys 패널티 적용)
         selected = apply_mmr_with_seen_penalty(
             query_emb, candidates, embs,
-            seen_track_keys=set(),
+            seen_track_keys=set(request.seen_track_keys),
             top_k=12,
             lambda_param=0.65,
         )
