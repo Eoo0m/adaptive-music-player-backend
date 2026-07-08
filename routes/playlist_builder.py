@@ -404,37 +404,61 @@ async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict 
 
         filtered_embs_np = np.array(filtered_embs)
 
-        # 5. 선택한 곡의 projected_embedding을 query로 사용
+        # 5. 두 query 준비
+        # 5a. 선택한 곡의 projected_embedding
         selected_emb_map = await fetch_projected_embeddings([request.selected_track_key])
-        query_emb = selected_emb_map.get(request.selected_track_key)
+        track_query_emb = selected_emb_map.get(request.selected_track_key)
 
-        if query_emb is None:
-            # fallback: 키워드 임베딩 재생성
-            keyword_embedding = get_openai_embedding_with_retry(request.keyword)
-            keyword_tensor = torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
-            with torch.no_grad():
-                projected_query = playlist_clip_model.caption_proj(keyword_tensor)
-                query_emb = projected_query.cpu().numpy()[0]
+        # 5b. 키워드 projected_embedding
+        keyword_embedding = get_openai_embedding_with_retry(request.keyword)
+        keyword_tensor = torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
+        with torch.no_grad():
+            projected_query = playlist_clip_model.caption_proj(keyword_tensor)
+            keyword_query_emb = projected_query.cpu().numpy()[0]
 
-        # 6. MMR 적용 (이미 본 곡 패널티)
+        if track_query_emb is None:
+            track_query_emb = keyword_query_emb
+
+        # 6. 선택곡 기준 MMR 6곡 + 키워드 기준 MMR 6곡 → 합산 (중복 제거)
         seen_set = set(request.seen_track_keys)
-        selected = apply_mmr_with_seen_penalty(
-            query_emb,
+
+        track_based = apply_mmr_with_seen_penalty(
+            track_query_emb,
             filtered_candidates,
             filtered_embs_np,
             seen_track_keys=seen_set,
-            top_k=12,
+            top_k=6,
+            lambda_param=0.65,
+            seen_penalty=0.3,
+        )
+        track_based_keys = {c["track_key"] for c in track_based}
+
+        keyword_based = apply_mmr_with_seen_penalty(
+            keyword_query_emb,
+            filtered_candidates,
+            filtered_embs_np,
+            seen_track_keys=seen_set | track_based_keys,  # 이미 뽑힌 건 패널티
+            top_k=6,
             lambda_param=0.65,
             seen_penalty=0.3,
         )
 
+        # 선택곡 기준 먼저, 키워드 기준 뒤에 (중복 제거)
+        seen_result = set()
+        selected = []
+        for c in track_based + keyword_based:
+            if c["track_key"] not in seen_result:
+                seen_result.add(c["track_key"])
+                selected.append(c)
+
         logger.info(
             f"[{request_id}] /playlist-builder/next done "
-            f"total={elapsed_ms(start_ms):.1f}ms merged={len(merged)} selected={len(selected)}"
+            f"total={elapsed_ms(start_ms):.1f}ms merged={len(merged)} "
+            f"track_based={len(track_based)} keyword_based={len(keyword_based)}"
         )
 
         return {
-            "candidates": selected,  # 12곡
+            "candidates": selected,  # 최대 12곡
         }
 
     except HTTPException:
