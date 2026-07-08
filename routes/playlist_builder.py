@@ -170,9 +170,15 @@ def apply_mmr_with_seen_penalty(
     top_k: int = 12,
     lambda_param: float = 0.65,
     seen_penalty: float = 0.3,
+    popularity_weight: float = 0.25,
 ):
     """
-    MMR 적용. seen_track_keys에 있는 곡은 relevance 점수에 패널티 적용.
+    MMR 적용.
+
+    relevance = sim(query, track) + popularity_weight * log1p(playlist_count) / log1p(max_count)
+    MMR score = lambda * relevance - (1 - lambda) * max_sim(track, selected)
+
+    seen_track_keys에 있는 곡은 relevance에 seen_penalty 배율 적용.
     """
     if len(keyword_candidates) == 0:
         return []
@@ -180,17 +186,26 @@ def apply_mmr_with_seen_penalty(
     candidate_ids = [c["track_key"] for c in keyword_candidates]
     candidate_embs = keyword_embs
 
-    # Normalize
+    # Normalize embeddings
     query_emb_n = query_emb / (np.linalg.norm(query_emb) + 1e-10)
     norms = np.linalg.norm(candidate_embs, axis=1, keepdims=True) + 1e-10
     candidate_embs_norm = candidate_embs / norms
 
-    query_sims = candidate_embs_norm @ query_emb_n  # (N,)
+    # 코사인 유사도 (N,)
+    query_sims = candidate_embs_norm @ query_emb_n
+
+    # 인기도 정규화: log1p(count) / log1p(max_count) → [0, 1]
+    counts = np.array([max(0, c.get("playlist_count") or 0) for c in keyword_candidates], dtype=np.float32)
+    max_count = counts.max() if counts.max() > 0 else 1.0
+    pop_scores = np.log1p(counts) / np.log1p(max_count)  # (N,)
+
+    # relevance = similarity + popularity_weight * popularity
+    relevance = query_sims + popularity_weight * pop_scores  # (N,)
 
     # seen 곡에 패널티
     for i, cid in enumerate(candidate_ids):
         if cid in seen_track_keys:
-            query_sims[i] *= seen_penalty
+            relevance[i] *= seen_penalty
 
     doc_sims = candidate_embs_norm @ candidate_embs_norm.T  # (N, N)
 
@@ -200,7 +215,7 @@ def apply_mmr_with_seen_penalty(
 
     for _ in range(min(top_k, len(candidate_ids))):
         if len(selected) == 0:
-            best_idx = int(np.argmax(query_sims))
+            best_idx = int(np.argmax(relevance))
         else:
             remaining_mask = ~selected_mask
             remaining_indices = np.where(remaining_mask)[0]
@@ -210,13 +225,13 @@ def apply_mmr_with_seen_penalty(
             max_sim_to_selected = np.max(
                 doc_sims[remaining_indices][:, selected_indices_local], axis=1
             )
-            mmr = lambda_param * query_sims[remaining_indices] - (1 - lambda_param) * max_sim_to_selected
+            mmr = lambda_param * relevance[remaining_indices] - (1 - lambda_param) * max_sim_to_selected
             best_local_idx = int(np.argmax(mmr))
             best_idx = remaining_indices[best_local_idx]
 
         selected.append(best_idx)
         selected_mask[best_idx] = True
-        selected_scores.append(float(query_sims[best_idx]))
+        selected_scores.append(float(relevance[best_idx]))
 
     return [keyword_candidates[i] for i in selected]
 
@@ -494,9 +509,21 @@ async def playlist_builder_finish(request: PlaylistBuilderFinishRequest, user: d
 
         similar_list = list(similar_pool.values())
 
-        # 랜덤 6곡 선택
+        # 가중 랜덤 6곡 선택
+        # weight = similarity * 0.6 + log1p(playlist_count) / log1p(max_count) * 0.4
         pick_count = min(6, len(similar_list))
-        filler_tracks_raw = random.sample(similar_list, pick_count) if len(similar_list) > pick_count else similar_list
+        if len(similar_list) > pick_count:
+            sim_arr = np.array([s.get("similarity", 0.5) for s in similar_list], dtype=np.float32)
+            cnt_arr = np.array([max(0, s.get("playlist_count") or 0) for s in similar_list], dtype=np.float32)
+            max_cnt = cnt_arr.max() if cnt_arr.max() > 0 else 1.0
+            pop_arr = np.log1p(cnt_arr) / np.log1p(max_cnt)
+            weights = 0.6 * sim_arr + 0.4 * pop_arr
+            weights = np.clip(weights, 1e-6, None)
+            probs = weights / weights.sum()
+            chosen_indices = np.random.choice(len(similar_list), size=pick_count, replace=False, p=probs)
+            filler_tracks_raw = [similar_list[i] for i in chosen_indices]
+        else:
+            filler_tracks_raw = similar_list
 
         filler_tracks = []
         for s in filler_tracks_raw:
