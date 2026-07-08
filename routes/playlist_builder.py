@@ -21,9 +21,22 @@ router = APIRouter(prefix="/playlist-builder")
 
 # ============== 시간대 감지 ==============
 
+def get_season() -> str:
+    """현재 월 기준 계절 반환"""
+    month = datetime.now().month
+    if month in (6, 7, 8):
+        return "여름"
+    elif month in (9, 10, 11):
+        return "가을"
+    elif month in (12, 1, 2):
+        return "겨울"
+    else:
+        return "봄"
+
+
 def get_time_of_day() -> str:
     """현재 시간 기준 시간대 반환 (KST 기준)"""
-    hour = datetime.now().hour  # 서버가 KST라면 그대로, 아니면 UTC+9 처리
+    hour = datetime.now().hour
     if 0 <= hour < 6:
         return "새벽"
     elif 6 <= hour < 12:
@@ -243,7 +256,8 @@ async def playlist_builder_start(user: dict = Depends(get_current_user)):
     start_ms = now_ms()
 
     time_of_day = get_time_of_day()
-    keyword = f"여름 {time_of_day}"
+    season = get_season()
+    keyword = f"{season} {time_of_day}"
     user_name = user.get("display_name") or user.get("email", "").split("@")[0]
 
     logger.info(f"[{request_id}] /playlist-builder/start keyword='{keyword}' user={user.get('user_id')}")
@@ -272,6 +286,7 @@ async def playlist_builder_start(user: dict = Depends(get_current_user)):
 
         return {
             "time_of_day": time_of_day,
+            "season": season,
             "keyword": keyword,
             "user_name": user_name,
             "candidates": selected,           # 12곡 (그리드에 표시)
