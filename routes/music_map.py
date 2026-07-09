@@ -12,22 +12,21 @@ router = APIRouter()
 
 
 class MusicMapRequest(BaseModel):
-    track_keys: List[str]           # 사용자가 입력한 seed 트랙들
-    favorite_keys: Optional[List[str]] = []  # 찜한 곡 키 목록
+    track_keys: List[str]
+    favorite_keys: Optional[List[str]] = []
     n_neighbors: Optional[int] = 15
     min_dist: Optional[float] = 0.1
-    fill_count: Optional[int] = 150  # seed 사이 채울 후보 수
+    fill_per_seed: Optional[int] = 60  # seed 1개당 뽑을 fill 수
 
 
 @router.post("/music-map")
 async def music_map(request: MusicMapRequest):
     """
-    주어진 트랙들의 embedding으로 UMAP 2D 지도를 생성.
-    seed 트랙 사이사이에 유사 트랙들을 채워 밀도 있는 지도 반환.
-    찜한 곡(favorite_keys)은 별도 플래그로 표시.
+    각 seed별 주변 fill을 따로 뽑아 합침 → 골고루 채워진 UMAP 지도 반환.
+    모든 트랙은 동일 크기로 반환 (크기 구분은 프론트에서 호버로만).
     """
-    if len(request.track_keys) < 2:
-        raise HTTPException(status_code=400, detail="트랙을 2개 이상 입력해주세요")
+    if len(request.track_keys) < 1:
+        raise HTTPException(status_code=400, detail="트랙을 1개 이상 입력해주세요")
     if len(request.track_keys) > 30:
         raise HTTPException(status_code=400, detail="트랙은 최대 30개까지 입력 가능합니다")
 
@@ -38,17 +37,12 @@ async def music_map(request: MusicMapRequest):
 
     pool = await get_db_pool()
 
-    # 1. seed 트랙 embedding + 메타데이터 조회
+    # 1. seed 트랙 조회
     seed_rows = await pool.fetch(
         """
         SELECT
-            track_key::text,
-            title::text,
-            artist::text,
-            album::text,
-            cover_image_url::text,
-            playlist_count,
-            embedding::text
+            track_key::text, title::text, artist::text, album::text,
+            cover_image_url::text, playlist_count, embedding::text
         FROM track_embeddings
         WHERE track_key = ANY($1::text[])
           AND embedding IS NOT NULL
@@ -60,52 +54,48 @@ async def music_map(request: MusicMapRequest):
         raise HTTPException(status_code=404, detail="트랙을 찾을 수 없습니다")
 
     seed_keys_found = [r["track_key"] for r in seed_rows]
-
-    # seed 평균 embedding으로 주변 fill 트랙 검색
-    seed_embs = []
-    for row in seed_rows:
-        emb = np.array(json_module.loads(row["embedding"]), dtype=np.float32)
-        seed_embs.append(emb)
-    mean_emb = np.mean(seed_embs, axis=0)
-    mean_emb = mean_emb / (np.linalg.norm(mean_emb) + 1e-8)
-
-    # 2. seed 주변 fill 트랙 조회 (seed 제외)
-    fill_count = max(request.fill_count, 80)
-    fill_rows = await pool.fetch(
-        """
-        SELECT
-            track_key::text,
-            title::text,
-            artist::text,
-            album::text,
-            cover_image_url::text,
-            playlist_count,
-            embedding::text
-        FROM track_embeddings
-        WHERE track_key != ALL($1::text[])
-          AND embedding IS NOT NULL
-        ORDER BY embedding <=> $2::vector
-        LIMIT $3
-        """,
-        seed_keys_found,
-        str(mean_emb.tolist()),
-        fill_count,
-    )
-
-    # 3. 전체 트랙 목록 구성 (seed + fill)
-    all_rows = list(seed_rows) + list(fill_rows)
-    all_keys = []
-    all_embs = []
-    all_meta = []
     seed_set = set(seed_keys_found)
     favorite_set = set(request.favorite_keys or [])
+
+    # 2. 각 seed별로 주변 fill 트랙을 따로 뽑기
+    fill_per_seed = max(request.fill_per_seed, 30)
+    all_fill_keys_seen = set(seed_keys_found)
+    fill_rows_all = []
+
+    for seed_row in seed_rows:
+        seed_emb = np.array(json_module.loads(seed_row["embedding"]), dtype=np.float32)
+        # 이미 뽑힌 트랙들 제외하면서 이 seed 주변 fill 뽑기
+        exclude_keys = list(all_fill_keys_seen)
+        rows = await pool.fetch(
+            """
+            SELECT
+                track_key::text, title::text, artist::text, album::text,
+                cover_image_url::text, playlist_count, embedding::text
+            FROM track_embeddings
+            WHERE track_key != ALL($1::text[])
+              AND embedding IS NOT NULL
+            ORDER BY embedding <=> $2::vector
+            LIMIT $3
+            """,
+            exclude_keys,
+            str(seed_emb.tolist()),
+            fill_per_seed,
+        )
+        for r in rows:
+            if r["track_key"] not in all_fill_keys_seen:
+                fill_rows_all.append(r)
+                all_fill_keys_seen.add(r["track_key"])
+
+    # 3. 전체 트랙 목록 구성
+    all_rows = list(seed_rows) + fill_rows_all
+    all_embs = []
+    all_meta = []
 
     for row in all_rows:
         emb_str = row["embedding"]
         if not emb_str:
             continue
         emb = np.array(json_module.loads(emb_str), dtype=np.float32)
-        all_keys.append(row["track_key"])
         all_embs.append(emb)
         all_meta.append({
             "track_key": row["track_key"],
@@ -147,6 +137,6 @@ async def music_map(request: MusicMapRequest):
     return {
         "tracks": tracks,
         "seed_count": len(seed_rows),
-        "fill_count": len(fill_rows),
+        "fill_count": len(fill_rows_all),
         "total": len(tracks),
     }
