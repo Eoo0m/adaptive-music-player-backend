@@ -144,11 +144,11 @@ async def find_similar_tracks(request: RecommendRequest):
                 t.album::text,
                 t.playlist_count,
                 t.cover_image_url::text,
-                (1 - (t.embedding <#> q.embedding) / 2)::float AS similarity
+                (1 - t.embedding <=> q.embedding)::float AS similarity
             FROM track_embeddings t, query_track q
             WHERE t.track_key != $1
               AND t.embedding IS NOT NULL
-            ORDER BY t.embedding <#> q.embedding
+            ORDER BY t.embedding <=> q.embedding
             LIMIT $2
             """,
             request.track_key,
@@ -255,7 +255,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
                 t.projected_embedding::text
             FROM track_embeddings t
             WHERE t.projected_embedding IS NOT NULL
-            ORDER BY t.projected_embedding <#> $1::vector
+            ORDER BY t.projected_embedding <=> $1::vector
             LIMIT $2
             """,
             str(projected_embedding_np.tolist()),

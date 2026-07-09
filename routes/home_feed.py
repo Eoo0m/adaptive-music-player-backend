@@ -52,11 +52,11 @@ async def home_feed(user: dict = Depends(get_current_user)):
                 t.album::text,
                 t.cover_image_url::text,
                 t.playlist_count,
-                (1 - (t.embedding <#> q.embedding) / 2)::float AS similarity
+                (1 - t.embedding <=> q.embedding)::float AS similarity
             FROM track_embeddings t, query_track q
             WHERE t.track_key != $1
               AND t.embedding IS NOT NULL
-            ORDER BY t.embedding <#> q.embedding
+            ORDER BY t.embedding <=> q.embedding
             LIMIT 12
             """,
             seed["track_key"]
