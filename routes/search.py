@@ -144,7 +144,7 @@ async def find_similar_tracks(request: RecommendRequest):
                 t.album::text,
                 t.playlist_count,
                 t.cover_image_url::text,
-                (1 - t.embedding <=> q.embedding)::float AS similarity
+                (1 - (t.embedding <=> q.embedding))::float AS similarity
             FROM track_embeddings t, query_track q
             WHERE t.track_key != $1
               AND t.embedding IS NOT NULL
