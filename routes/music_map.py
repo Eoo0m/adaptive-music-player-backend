@@ -95,7 +95,7 @@ async def music_map(request: MusicMapRequest):
             FROM track_embeddings
             WHERE track_key != ALL($1::text[])
               AND embedding IS NOT NULL
-            ORDER BY embedding <=> $2::vector
+            ORDER BY embedding <#> $2::vector
             LIMIT $3
             """,
             exclude,

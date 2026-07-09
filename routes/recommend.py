@@ -108,11 +108,11 @@ async def recommend(request: RecommendAverageRequest):
                 t.album::text,
                 t.playlist_count,
                 t.cover_image_url::text,
-                (1 - (t.itemtower_embedding <=> $1::vector))::float AS similarity
+                (1 - (t.itemtower_embedding <#> $1::vector) / 2)::float AS similarity
             FROM track_embeddings t
             WHERE t.itemtower_embedding IS NOT NULL
               AND t.track_key::text != ALL($2)
-            ORDER BY t.itemtower_embedding <=> $1::vector
+            ORDER BY t.itemtower_embedding <#> $1::vector
             LIMIT $3
             """,
             str(user_embedding_list),
