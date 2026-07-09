@@ -1,3 +1,4 @@
+import asyncio
 import json as json_module
 import logging
 import numpy as np
@@ -65,13 +66,11 @@ async def music_map(request: MusicMapRequest):
             json_module.loads(row["embedding"]), dtype=np.float32
         )
 
-    all_fill_keys_seen = set(seed_keys_found)
-    fill_rows_all = []
+    seed_key_set = set(seed_keys_found)
 
-    async def fetch_near(emb: np.ndarray, limit: int):
-        """주어진 벡터 근처 트랙을 DB에서 뽑기 (이미 본 것 제외)"""
-        exclude = list(all_fill_keys_seen)
-        rows = await pool.fetch(
+    async def fetch_near_raw(emb: np.ndarray, limit: int, exclude: list):
+        """주어진 벡터 근처 트랙을 DB에서 뽑기"""
+        return await pool.fetch(
             """
             SELECT track_key::text, title::text, artist::text, album::text,
                    cover_image_url::text, playlist_count, embedding::text
@@ -85,45 +84,49 @@ async def music_map(request: MusicMapRequest):
             str(emb.tolist()),
             limit,
         )
-        new = []
-        for r in rows:
-            if r["track_key"] not in all_fill_keys_seen:
-                new.append(r)
-                all_fill_keys_seen.add(r["track_key"])
-        return new
 
-    # 2. 각 seed 주변 fill
+    # 2. 각 seed 주변 fill + 3. bridge fill 쿼리 목록 수집
     fill_per_seed = max(request.fill_per_seed, 10)
-    for key in seed_keys_found:
-        rows = await fetch_near(seed_embs[key], fill_per_seed)
-        fill_rows_all.extend(rows)
+    queries = []  # (emb, limit) 튜플 목록
 
-    # 3. seed 쌍 사이 bridge fill (거리 비례)
+    for key in seed_keys_found:
+        queries.append((seed_embs[key], fill_per_seed))
+
     keys = list(seed_embs.keys())
     if len(keys) >= 2:
-        # 쌍별 거리 계산
         pairs = []
         for i in range(len(keys)):
             for j in range(i + 1, len(keys)):
                 ea, eb = seed_embs[keys[i]], seed_embs[keys[j]]
                 dist = float(np.linalg.norm(ea - eb))
-                pairs.append((dist, keys[i], keys[j], ea, eb))
+                pairs.append((dist, ea, eb))
 
-        # 전체 거리 범위 정규화
         max_dist = max(p[0] for p in pairs) or 1.0
-
         bridge_base = max(request.bridge_per_pair, 5)
-        for dist, ka, kb, ea, eb in pairs:
-            # 거리에 비례해 보간 횟수 결정 (가까우면 1개, 멀면 최대 5개 보간점)
+
+        for dist, ea, eb in pairs:
             n_interp = max(1, round((dist / max_dist) * 5))
             n_per_point = max(3, round(bridge_base * (dist / max_dist)))
-
             for k in range(1, n_interp + 1):
                 t = k / (n_interp + 1)
                 mid = (1 - t) * ea + t * eb
                 mid = mid / (np.linalg.norm(mid) + 1e-8)
-                rows = await fetch_near(mid, n_per_point)
-                fill_rows_all.extend(rows)
+                queries.append((mid, n_per_point))
+
+    # 병렬 DB 조회 (seed 키는 공통 제외)
+    exclude_base = list(seed_key_set)
+    results = await asyncio.gather(*[
+        fetch_near_raw(emb, limit, exclude_base) for emb, limit in queries
+    ])
+
+    # 중복 제거하며 합치기
+    seen = set(seed_key_set)
+    fill_rows_all = []
+    for rows in results:
+        for r in rows:
+            if r["track_key"] not in seen:
+                seen.add(r["track_key"])
+                fill_rows_all.append(r)
 
     # 4. 전체 트랙 목록 구성
     all_rows = list(seed_rows) + fill_rows_all
