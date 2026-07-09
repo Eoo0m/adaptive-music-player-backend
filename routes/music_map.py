@@ -104,8 +104,11 @@ async def music_map(request: MusicMapRequest):
         max_dist = max(p[0] for p in pairs) or 1.0
         bridge_base = max(request.bridge_per_pair, 5)
 
-        for dist, ea, eb in pairs:
-            n_interp = max(1, round((dist / max_dist) * 5))
+        # 거리 먼 쌍만 bridge (최대 15쌍)
+        pairs.sort(reverse=True)
+        MAX_BRIDGE_PAIRS = 15
+        for dist, ea, eb in pairs[:MAX_BRIDGE_PAIRS]:
+            n_interp = max(1, min(3, round((dist / max_dist) * 5)))  # 최대 3개 보간점
             n_per_point = max(3, round(bridge_base * (dist / max_dist)))
             for k in range(1, n_interp + 1):
                 t = k / (n_interp + 1)
