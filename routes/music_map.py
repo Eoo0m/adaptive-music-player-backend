@@ -121,7 +121,8 @@ async def music_map(request: MusicMapRequest):
         min_dist=request.min_dist,
         metric="euclidean",
         random_state=42,
-        low_memory=False,
+        low_memory=True,   # 메모리/속도 절충
+        n_epochs=100,      # 기본 200 → 100으로 줄여 속도 2배
     )
     coords_2d = reducer.fit_transform(X)
 
