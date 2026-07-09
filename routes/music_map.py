@@ -21,6 +21,24 @@ class MusicMapRequest(BaseModel):
     bridge_per_pair: Optional[int] = 15  # seed 쌍 사이 보간 fill 수
 
 
+@router.get("/top-tracks")
+async def top_tracks(limit: int = 10):
+    """저장수 높은 트랙 반환 (찜이 없을 때 취향 지도 seed용)"""
+    pool = await get_db_pool()
+    rows = await pool.fetch(
+        """
+        SELECT track_key::text, title::text, artist::text, album::text,
+               cover_image_url::text, playlist_count
+        FROM track_embeddings
+        WHERE embedding IS NOT NULL
+        ORDER BY playlist_count DESC
+        LIMIT $1
+        """,
+        limit,
+    )
+    return {"tracks": [dict(r) for r in rows]}
+
+
 @router.post("/music-map")
 async def music_map(request: MusicMapRequest):
     """
