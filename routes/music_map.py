@@ -293,7 +293,18 @@ async def music_map(request: MusicMapRequest):
             seed_fill_list[m["source_seed_key"]].append(m["track_key"])
 
     fill_pos = {}
-    FILL_RADIUS_BASE = 1.2  # 시드 주변 최대 반지름
+
+    # 시드 간 최소 거리의 절반을 fill 반지름 상한으로 설정 (다른 시드 영역 침범 방지)
+    seed_positions = list(seed_pos.values())
+    if len(seed_positions) >= 2:
+        min_seed_dist = min(
+            np.linalg.norm(seed_positions[i] - seed_positions[j])
+            for i in range(len(seed_positions))
+            for j in range(i + 1, len(seed_positions))
+        )
+        FILL_RADIUS_MAX = min_seed_dist * 0.45
+    else:
+        FILL_RADIUS_MAX = 2.0
 
     for sk, fill_keys in seed_fill_list.items():
         center = seed_pos[sk]
@@ -303,9 +314,9 @@ async def music_map(request: MusicMapRequest):
             emb = all_embs_map[tk]
             emb_n = emb / (np.linalg.norm(emb) + 1e-8)
             sim = float(np.dot(emb_n, sn))
-            # 유사도 높을수록 시드에 가까이, 낮을수록 멀리
-            radius = FILL_RADIUS_BASE * (1.0 - sim) + 0.2
-            radius = min(radius, FILL_RADIUS_BASE)
+            # 유사도 높을수록 시드에 가까이, 낮을수록 멀리 (상한: 시드 간 최소거리의 45%)
+            radius = FILL_RADIUS_MAX * (1.0 - sim) + 0.1
+            radius = min(radius, FILL_RADIUS_MAX)
             angle = rng_gen.uniform(0, 2 * np.pi)
             fill_pos[tk] = center + radius * np.array([np.cos(angle), np.sin(angle)])
 
