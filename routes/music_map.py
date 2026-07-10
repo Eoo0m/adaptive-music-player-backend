@@ -167,11 +167,15 @@ async def music_map(request: MusicMapRequest):
         bridge_results = await asyncio.gather(*[
             fetch_near_raw(emb, limit, exclude_now) for emb, limit in bridge_queries
         ])
+        bridge_keys = set()
         for rows in bridge_results:
             for r in rows:
                 if r["track_key"] not in seen:
                     seen.add(r["track_key"])
                     fill_rows_all.append(r)
+                    bridge_keys.add(r["track_key"])
+    else:
+        bridge_keys = set()
 
     # 4. 전체 트랙 목록 구성
     all_rows = list(seed_rows) + fill_rows_all
@@ -193,6 +197,7 @@ async def music_map(request: MusicMapRequest):
             "playlist_count": row["playlist_count"],
             "is_seed": row["track_key"] in seed_set,
             "is_favorite": row["track_key"] in favorite_set,
+            "is_bridge": row["track_key"] in bridge_keys,
         })
 
     if len(all_embs) < 2:
