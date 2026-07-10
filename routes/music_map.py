@@ -314,8 +314,8 @@ async def music_map(request: MusicMapRequest):
             emb = all_embs_map[tk]
             emb_n = emb / (np.linalg.norm(emb) + 1e-8)
             sim = float(np.dot(emb_n, sn))
-            # 유사도 높을수록 시드에 가까이, 낮을수록 멀리 (상한: 시드 간 최소거리의 45%)
-            radius = FILL_RADIUS_MAX * (1.0 - sim) + 0.1
+            # 유사도로 0~FILL_RADIUS_MAX 사이 반지름 결정
+            radius = FILL_RADIUS_MAX * max(0.0, 1.0 - sim)
             radius = min(radius, FILL_RADIUS_MAX)
             angle = rng_gen.uniform(0, 2 * np.pi)
             fill_pos[tk] = center + radius * np.array([np.cos(angle), np.sin(angle)])
