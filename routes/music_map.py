@@ -142,7 +142,7 @@ async def music_map(request: MusicMapRequest):
                 continue  # 가까운 쌍은 bridge 불필요
             n_interp = max(1, min(3, round(cos_dist * 4)))
             n_per_point = max(3, round(bridge_base * cos_dist))
-            threshold = max(sim_ab, 0.2)
+            threshold = max(sim_ab, 0.5)
             for k in range(1, n_interp + 1):
                 t = k / (n_interp + 1)
                 mid = (1 - t) * ea + t * eb
