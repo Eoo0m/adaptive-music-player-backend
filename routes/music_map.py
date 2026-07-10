@@ -294,26 +294,25 @@ async def music_map(request: MusicMapRequest):
             seed_fill_list[m["source_seed_key"]].append(m["track_key"])
 
     fill_pos = {}
-    FILL_RADIUS_BASE = 2.5  # 시드 주변 반지름 기본값
+    FILL_RADIUS_BASE = 1.2  # 시드 주변 최대 반지름
 
     for sk, fill_keys in seed_fill_list.items():
         center = seed_pos[sk]
         sn = seed_embs_n[sk]
-        n_fills = len(fill_keys)
-        for idx, tk in enumerate(fill_keys):
-            # 유사도로 반지름 결정 (유사도 높을수록 시드에 가까이)
+        rng_gen = np.random.default_rng(abs(hash(sk)) % 2**32)
+        for tk in fill_keys:
             emb = all_embs_map[tk]
             emb_n = emb / (np.linalg.norm(emb) + 1e-8)
             sim = float(np.dot(emb_n, sn))
-            radius = FILL_RADIUS_BASE * (1.1 - sim)  # sim=1이면 반지름 작음, sim=0이면 큼
-            radius = max(0.3, min(FILL_RADIUS_BASE * 1.2, radius))
-            # 각도 균등 분산 + seed 방향 편향 제거
-            angle = (2 * np.pi * idx / n_fills) + (np.pi / n_fills * (hash(tk) % 2))
+            # 유사도 높을수록 시드에 가까이, 낮을수록 멀리
+            radius = FILL_RADIUS_BASE * (1.0 - sim) + 0.2
+            radius = min(radius, FILL_RADIUS_BASE)
+            angle = rng_gen.uniform(0, 2 * np.pi)
             fill_pos[tk] = center + radius * np.array([np.cos(angle), np.sin(angle)])
 
     # 5-3. bridge 위치: 두 시드 중간 + 유사도 기반 오프셋
     bridge_pos = {}
-    BRIDGE_RADIUS = 0.8
+    BRIDGE_RADIUS = 0.4
 
     for m in all_meta:
         if not m["is_bridge"]:
