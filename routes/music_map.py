@@ -169,8 +169,7 @@ async def music_map(request: MusicMapRequest):
                 sim_b = float(np.dot(cemb_n, eb_n))
                 if sim_a >= threshold and sim_b >= threshold:
                     candidates.append((min(sim_a, sim_b), sim_a, sim_b, r))
-            candidates.sort(reverse=True)
-            for _, sim_a, sim_b, r in candidates[:max(1, len(candidates) // 2)]:
+            for _, sim_a, sim_b, r in candidates:
                 tk = r["track_key"]
                 bridge_keys.add(tk)
                 if tk not in seen:
