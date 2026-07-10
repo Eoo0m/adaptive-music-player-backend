@@ -220,7 +220,7 @@ async def music_map(request: MusicMapRequest):
         metric="cosine",
         random_state=42,
         low_memory=True,
-        n_epochs=100,
+        n_epochs=50,
     )
     coords_2d = reducer.fit_transform(X_base, sample_weight=weights)
 
