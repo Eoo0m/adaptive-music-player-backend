@@ -310,32 +310,44 @@ async def music_map(request: MusicMapRequest):
             angle = rng_gen.uniform(0, 2 * np.pi)
             fill_pos[tk] = center + radius * np.array([np.cos(angle), np.sin(angle)])
 
-    # 5-3. bridge 위치: 두 시드 중간 + 유사도 기반 오프셋
+    # 5-3. bridge 위치: 시드 쌍별로 묶어서 선분 위에 분산 배치
     bridge_pos = {}
-    BRIDGE_RADIUS = 0.4
+    BRIDGE_PERP = 0.3  # 수직 오프셋 최대값
 
+    # 시드 쌍별로 bridge 곡 묶기
+    pair_bridges = defaultdict(list)  # (ka, kb) → [(tk, sim_a, sim_b), ...]
     for m in all_meta:
         if not m["is_bridge"]:
             continue
-        tk = m["track_key"]
-        bi = m.get("bridge_seed_a"), m.get("bridge_seed_b")
-        if bi[0] and bi[1]:
-            ka, kb = bi[0]["key"], bi[1]["key"]
-            pa, pb = seed_pos.get(ka, np.zeros(2)), seed_pos.get(kb, np.zeros(2))
-            sim_a = bi[0]["sim"]
-            sim_b = bi[1]["sim"]
-            # sim_a, sim_b 비율로 두 시드 사이 위치 결정
-            t = sim_b / (sim_a + sim_b + 1e-8)
-            mid = (1 - t) * pa + t * pb
-            # 수직 방향으로 작은 오프셋 (겹침 방지)
+        ba, bb = m.get("bridge_seed_a"), m.get("bridge_seed_b")
+        if ba and bb:
+            pair_key = tuple(sorted([ba["key"], bb["key"]]))
+            pair_bridges[pair_key].append((m["track_key"], ba["sim"], bb["sim"], ba["key"], bb["key"]))
+
+    for pair_key, items in pair_bridges.items():
+        # sim_a/(sim_a+sim_b) 기준으로 정렬 → 선분 위에 순서대로 배치
+        items.sort(key=lambda x: x[1] / (x[1] + x[2] + 1e-8), reverse=True)
+        n = len(items)
+        for idx, (tk, sim_a, sim_b, ka, kb) in enumerate(items):
+            pa = seed_pos.get(ka, np.zeros(2))
+            pb = seed_pos.get(kb, np.zeros(2))
+            # t: sim_a 높으면 ka쪽, sim_b 높으면 kb쪽. 여러 곡은 0.2~0.8 사이에 분산
+            t_sim = sim_b / (sim_a + sim_b + 1e-8)
+            t_spread = 0.2 + 0.6 * (idx / max(n - 1, 1))
+            t = 0.5 * t_sim + 0.5 * t_spread  # sim 기반 + 분산의 혼합
+            pos = (1 - t) * pa + t * pb
+            # 수직 오프셋 (교대로 양/음)
             perp = np.array([-(pb - pa)[1], (pb - pa)[0]])
             perp_norm = np.linalg.norm(perp) + 1e-8
-            offset_sign = 1 if hash(tk) % 2 == 0 else -1
-            bridge_pos[tk] = mid + offset_sign * (perp / perp_norm) * BRIDGE_RADIUS * np.random.default_rng(abs(hash(tk)) % 2**32).random()
-        else:
-            # fallback: 시드들의 평균 중간
+            sign = 1 if idx % 2 == 0 else -1
+            pos = pos + sign * (perp / perp_norm) * BRIDGE_PERP
+            bridge_pos[tk] = pos
+
+    # fallback: 쌍 정보 없는 bridge
+    for m in all_meta:
+        if m["is_bridge"] and m["track_key"] not in bridge_pos:
             center = np.mean([sp for sp in seed_pos.values()], axis=0)
-            bridge_pos[tk] = center + np.random.default_rng(abs(hash(tk)) % 2**32).normal(0, 0.5, 2)
+            bridge_pos[m["track_key"]] = center + np.random.default_rng(abs(hash(m["track_key"])) % 2**32).normal(0, 0.3, 2)
 
     # 6. 결과 구성
     tracks = []
