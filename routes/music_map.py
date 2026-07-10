@@ -118,72 +118,8 @@ async def music_map(request: MusicMapRequest):
                 fill_rows_all.append(r)
                 fill_source_seed[tk] = seed_key
 
-    # 3. bridge fill: 거리 먼 seed 쌍 사이 중간 벡터로 보간
-    keys = list(seed_embs.keys())
-    if len(keys) >= 2:
-        pairs = []
-        for i in range(len(keys)):
-            for j in range(i + 1, len(keys)):
-                ka, kb = keys[i], keys[j]
-                ea, eb = seed_embs[ka], seed_embs[kb]
-                dist = float(np.linalg.norm(ea - eb))
-                pairs.append((dist, ea, eb, ka, kb))
-
-        bridge_base = max(request.bridge_per_pair, 5)
-
-        BRIDGE_DIST_THRESHOLD = 0.5  # 코사인 거리 > 0.5인 쌍만 bridge
-        bridge_queries = []
-        for dist, ea, eb, key_a, key_b in pairs:
-            ea_n = ea / (np.linalg.norm(ea) + 1e-8)
-            eb_n = eb / (np.linalg.norm(eb) + 1e-8)
-            sim_ab = float(np.dot(ea_n, eb_n))
-            cos_dist = 1.0 - sim_ab
-            if cos_dist <= BRIDGE_DIST_THRESHOLD:
-                continue  # 가까운 쌍은 bridge 불필요
-            n_interp = max(1, min(3, round(cos_dist * 4)))
-            n_per_point = max(3, round(bridge_base * cos_dist))
-            threshold = max(sim_ab, 0.5)
-            for k in range(1, n_interp + 1):
-                t = k / (n_interp + 1)
-                mid = (1 - t) * ea + t * eb
-                mid = mid / (np.linalg.norm(mid) + 1e-8)
-                bridge_queries.append((mid, n_per_point, ea, eb, threshold, key_a, key_b))
-
-        # bridge는 seed만 제외하고 조회 (fill과 겹쳐도 is_bridge 우선)
-        bridge_results = await asyncio.gather(*[
-            fetch_near_raw(emb, limit, exclude_base) for emb, limit, *_ in bridge_queries
-        ])
-        bridge_keys = set()
-        bridge_info = {}  # track_key → {key_a, key_b, sim_a, sim_b}
-        for (_, limit, ea, eb, threshold, key_a, key_b), rows in zip(bridge_queries, bridge_results):
-            ea_n = ea / (np.linalg.norm(ea) + 1e-8)
-            eb_n = eb / (np.linalg.norm(eb) + 1e-8)
-            candidates = []
-            for r in rows:
-                tk = r["track_key"]
-                if tk in seed_key_set:
-                    continue
-                cemb = np.array(json_module.loads(r["embedding"]), dtype=np.float32)
-                cemb_n = cemb / (np.linalg.norm(cemb) + 1e-8)
-                sim_a = float(np.dot(cemb_n, ea_n))
-                sim_b = float(np.dot(cemb_n, eb_n))
-                if sim_a >= threshold and sim_b >= threshold:
-                    candidates.append((min(sim_a, sim_b), sim_a, sim_b, r))
-            for _, sim_a, sim_b, r in candidates:
-                tk = r["track_key"]
-                bridge_keys.add(tk)
-                if tk not in seen:
-                    seen.add(tk)
-                    fill_rows_all.append(r)
-                # 이미 다른 bridge pair에서 등록됐어도 info 덮어쓰기 (더 최근 pair)
-                bridge_info[tk] = {
-                    "bridge_seed_a_key": key_a,
-                    "bridge_seed_b_key": key_b,
-                    "bridge_sim_a": round(sim_a, 3),
-                    "bridge_sim_b": round(sim_b, 3),
-                }
-    else:
-        bridge_keys = set()
+    # 3. bridge 없음
+    bridge_keys = set()
 
     # 4. 전체 트랙 목록 구성
     seed_meta_map = {r["track_key"]: {"title": r["title"], "artist": r["artist"]} for r in seed_rows}
@@ -202,19 +138,8 @@ async def music_map(request: MusicMapRequest):
         is_seed = tk in seed_set
         is_bridge = tk in bridge_keys
 
-        # fill: 어느 시드에서 뽑혔는지
         source_key = fill_source_seed.get(tk)
         source_meta = seed_meta_map.get(source_key) if source_key else None
-
-        # bridge: 두 시드 정보 + 유사도
-        bi = bridge_info.get(tk) if is_bridge else None
-        if bi:
-            ka, kb = bi["bridge_seed_a_key"], bi["bridge_seed_b_key"]
-            ma, mb = seed_meta_map.get(ka), seed_meta_map.get(kb)
-            bridge_seed_a = {"key": ka, "title": ma["title"] if ma else None, "artist": ma["artist"] if ma else None, "sim": bi["bridge_sim_a"]}
-            bridge_seed_b = {"key": kb, "title": mb["title"] if mb else None, "artist": mb["artist"] if mb else None, "sim": bi["bridge_sim_b"]}
-        else:
-            bridge_seed_a = bridge_seed_b = None
 
         all_meta.append({
             "track_key": tk,
@@ -225,12 +150,10 @@ async def music_map(request: MusicMapRequest):
             "playlist_count": row["playlist_count"],
             "is_seed": is_seed,
             "is_favorite": tk in favorite_set,
-            "is_bridge": is_bridge,
+            "is_bridge": False,
             "source_seed_key": source_key,
             "source_seed_title": source_meta["title"] if source_meta else None,
             "source_seed_artist": source_meta["artist"] if source_meta else None,
-            "bridge_seed_a": bridge_seed_a,
-            "bridge_seed_b": bridge_seed_b,
         })
 
     if len(all_embs) < 2:
@@ -323,53 +246,12 @@ async def music_map(request: MusicMapRequest):
             angle = rng_gen.uniform(0, 2 * np.pi)
             fill_pos[tk] = center + radius * np.array([np.cos(angle), np.sin(angle)])
 
-    # 5-3. bridge 위치: 시드 쌍별로 묶어서 선분 위에 분산 배치
-    bridge_pos = {}
-    BRIDGE_PERP = 0.3  # 수직 오프셋 최대값
-
-    # 시드 쌍별로 bridge 곡 묶기
-    pair_bridges = defaultdict(list)  # (ka, kb) → [(tk, sim_a, sim_b), ...]
-    for m in all_meta:
-        if not m["is_bridge"]:
-            continue
-        ba, bb = m.get("bridge_seed_a"), m.get("bridge_seed_b")
-        if ba and bb:
-            pair_key = tuple(sorted([ba["key"], bb["key"]]))
-            pair_bridges[pair_key].append((m["track_key"], ba["sim"], bb["sim"], ba["key"], bb["key"]))
-
-    for pair_key, items in pair_bridges.items():
-        # sim_a/(sim_a+sim_b) 기준으로 정렬 → 선분 위에 순서대로 배치
-        items.sort(key=lambda x: x[1] / (x[1] + x[2] + 1e-8), reverse=True)
-        n = len(items)
-        for idx, (tk, sim_a, sim_b, ka, kb) in enumerate(items):
-            pa = seed_pos.get(ka, np.zeros(2))
-            pb = seed_pos.get(kb, np.zeros(2))
-            # t: sim_a 높으면 ka쪽, sim_b 높으면 kb쪽. 여러 곡은 0.2~0.8 사이에 분산
-            t_sim = sim_b / (sim_a + sim_b + 1e-8)
-            t_spread = 0.2 + 0.6 * (idx / max(n - 1, 1))
-            t = 0.5 * t_sim + 0.5 * t_spread  # sim 기반 + 분산의 혼합
-            pos = (1 - t) * pa + t * pb
-            # 수직 오프셋 (교대로 양/음)
-            perp = np.array([-(pb - pa)[1], (pb - pa)[0]])
-            perp_norm = np.linalg.norm(perp) + 1e-8
-            sign = 1 if idx % 2 == 0 else -1
-            pos = pos + sign * (perp / perp_norm) * BRIDGE_PERP
-            bridge_pos[tk] = pos
-
-    # fallback: 쌍 정보 없는 bridge
-    for m in all_meta:
-        if m["is_bridge"] and m["track_key"] not in bridge_pos:
-            center = np.mean([sp for sp in seed_pos.values()], axis=0)
-            bridge_pos[m["track_key"]] = center + np.random.default_rng(abs(hash(m["track_key"])) % 2**32).normal(0, 0.3, 2)
-
     # 6. 결과 구성
     tracks = []
     for meta in all_meta:
         tk = meta["track_key"]
         if meta["is_seed"]:
             xy = seed_pos[tk]
-        elif meta["is_bridge"]:
-            xy = bridge_pos.get(tk, np.zeros(2))
         else:
             xy = fill_pos.get(tk, seed_pos.get(meta.get("source_seed_key"), np.zeros(2)))
         tracks.append({
@@ -377,6 +259,10 @@ async def music_map(request: MusicMapRequest):
             "x": float(xy[0]),
             "y": float(xy[1]),
         })
+
+    for t in tracks:
+        if t["is_seed"]:
+            logger.info(f"  seed [{t['title'][:20]}] x={t['x']:.2f} y={t['y']:.2f}")
 
     return {
         "tracks": tracks,
