@@ -162,18 +162,19 @@ async def music_map(request: MusicMapRequest):
                 mid = mid / (np.linalg.norm(mid) + 1e-8)
                 bridge_queries.append((mid, n_per_point))
 
-        # bridge는 병렬 조회 (현재 seen 기준 제외)
-        exclude_now = list(seen)
+        # bridge는 seed만 제외하고 조회 (fill과 겹쳐도 is_bridge 우선)
         bridge_results = await asyncio.gather(*[
-            fetch_near_raw(emb, limit, exclude_now) for emb, limit in bridge_queries
+            fetch_near_raw(emb, limit, exclude_base) for emb, limit in bridge_queries
         ])
         bridge_keys = set()
         for rows in bridge_results:
             for r in rows:
-                if r["track_key"] not in seen:
-                    seen.add(r["track_key"])
-                    fill_rows_all.append(r)
-                    bridge_keys.add(r["track_key"])
+                tk = r["track_key"]
+                if tk not in seed_key_set:
+                    bridge_keys.add(tk)
+                    if tk not in seen:
+                        seen.add(tk)
+                        fill_rows_all.append(r)
     else:
         bridge_keys = set()
 
