@@ -129,17 +129,19 @@ async def music_map(request: MusicMapRequest):
                 dist = float(np.linalg.norm(ea - eb))
                 pairs.append((dist, ea, eb, ka, kb))
 
-        max_dist = max(p[0] for p in pairs) or 1.0
         bridge_base = max(request.bridge_per_pair, 5)
 
-        pairs.sort(reverse=True)
-        MAX_BRIDGE_PAIRS = 15
-        # (mid_vec, n_per_point, ea, eb, threshold, key_a, key_b) — ea/eb는 검증용
+        BRIDGE_DIST_THRESHOLD = 0.5  # 코사인 거리 > 0.5인 쌍만 bridge
         bridge_queries = []
-        for dist, ea, eb, key_a, key_b in pairs[:MAX_BRIDGE_PAIRS]:
-            n_interp = max(1, min(3, round((dist / max_dist) * 5)))
-            n_per_point = max(3, round(bridge_base * (dist / max_dist)))
-            sim_ab = float(np.dot(ea, eb) / (np.linalg.norm(ea) * np.linalg.norm(eb) + 1e-8))
+        for dist, ea, eb, key_a, key_b in pairs:
+            ea_n = ea / (np.linalg.norm(ea) + 1e-8)
+            eb_n = eb / (np.linalg.norm(eb) + 1e-8)
+            sim_ab = float(np.dot(ea_n, eb_n))
+            cos_dist = 1.0 - sim_ab
+            if cos_dist <= BRIDGE_DIST_THRESHOLD:
+                continue  # 가까운 쌍은 bridge 불필요
+            n_interp = max(1, min(3, round(cos_dist * 4)))
+            n_per_point = max(3, round(bridge_base * cos_dist))
             threshold = max(sim_ab, 0.2)
             for k in range(1, n_interp + 1):
                 t = k / (n_interp + 1)
