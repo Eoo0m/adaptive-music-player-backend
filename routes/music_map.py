@@ -15,8 +15,8 @@ router = APIRouter()
 class MusicMapRequest(BaseModel):
     track_keys: List[str]
     favorite_keys: Optional[List[str]] = []
-    n_neighbors: Optional[int] = 15
-    min_dist: Optional[float] = 0.1
+    n_neighbors: Optional[int] = 8
+    min_dist: Optional[float] = 0.03
     fill_per_seed: Optional[int] = 30   # seed 주변 fill 수
     bridge_per_pair: Optional[int] = 15  # seed 쌍 사이 보간 fill 수
 
