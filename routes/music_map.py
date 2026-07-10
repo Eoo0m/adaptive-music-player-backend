@@ -200,63 +200,26 @@ async def music_map(request: MusicMapRequest):
 
     logger.info(f"music-map: {len(seed_rows)} seeds, {len(fill_rows_all)} fills, total={len(all_embs)}")
 
-    # 5. 2D 레이아웃 — UMAP 없이 직접 계산
-    #
-    # [seed 위치] MDS 방식: seed끼리 cosine 거리 행렬 → 2D 좌표
-    # [fill 위치] 각 seed와의 cosine 유사도를 가중치로 weighted average
-    #             → 가장 가까운 seed 쪽으로 강하게 당겨짐
+    # 5. UMAP 2D 변환 (seed 곡에 가중치 3배)
+    try:
+        import umap
+    except ImportError:
+        raise HTTPException(status_code=500, detail="umap-learn 패키지가 필요합니다")
 
-    seed_meta_idx = [i for i, m in enumerate(all_meta) if m["is_seed"]]
-    fill_meta_idx = [i for i, m in enumerate(all_meta) if not m["is_seed"]]
+    X_base = np.array(all_embs, dtype=np.float32)
+    weights = np.array([3.0 if m["is_seed"] else 1.0 for m in all_meta], dtype=np.float32)
+    n_neighbors = min(request.n_neighbors, len(X_base) - 1)
 
-    X = np.array(all_embs, dtype=np.float32)
-    # L2 정규화 (코사인 = 내적)
-    norms = np.linalg.norm(X, axis=1, keepdims=True) + 1e-8
-    X_norm = X / norms
-
-    S_embs = X_norm[seed_meta_idx]  # (n_seeds, D)
-    n_seeds = len(S_embs)
-
-    # seed 간 거리 행렬 (cosine distance = 1 - cosine similarity)
-    sim_ss = S_embs @ S_embs.T  # (n_seeds, n_seeds)
-    dist_ss = np.clip(1.0 - sim_ss, 0, 2)
-
-    # Classical MDS로 seed 2D 좌표 계산
-    if n_seeds == 1:
-        seed_coords = np.zeros((1, 2), dtype=np.float32)
-    else:
-        D2 = dist_ss ** 2
-        n = n_seeds
-        J = np.eye(n) - np.ones((n, n)) / n
-        B = -0.5 * J @ D2 @ J
-        eigvals, eigvecs = np.linalg.eigh(B)
-        # 상위 2개 고유값
-        idx = np.argsort(eigvals)[::-1][:2]
-        vals = np.maximum(eigvals[idx], 0)
-        seed_coords = eigvecs[:, idx] * np.sqrt(vals)  # (n_seeds, 2)
-
-    # fill 위치: 각 seed와의 유사도^k 를 가중치로 weighted average
-    # k가 클수록 가장 가까운 seed 쪽으로 더 강하게 당겨짐
-    SHARPNESS = 8.0
-    coords_2d = np.zeros((len(all_meta), 2), dtype=np.float32)
-
-    for ci, si in enumerate(seed_meta_idx):
-        coords_2d[si] = seed_coords[ci]
-
-    if fill_meta_idx:
-        F_embs = X_norm[fill_meta_idx]          # (n_fills, D)
-        sim_fs = F_embs @ S_embs.T              # (n_fills, n_seeds)  유사도
-        # 음수 방지 후 sharpness 적용
-        w = np.clip(sim_fs, 0, None) ** SHARPNESS
-        w_sum = w.sum(axis=1, keepdims=True) + 1e-8
-        w_norm = w / w_sum
-        fill_coords = w_norm @ seed_coords      # (n_fills, 2)
-        # 각 fill에 약간의 noise — 같은 위치에 겹치지 않도록
-        rng = np.random.default_rng(42)
-        spread = float(np.std(seed_coords) + 1e-4) * 0.15
-        fill_coords += rng.normal(0, spread, fill_coords.shape)
-        for ci, fi in enumerate(fill_meta_idx):
-            coords_2d[fi] = fill_coords[ci]
+    reducer = umap.UMAP(
+        n_components=2,
+        n_neighbors=n_neighbors,
+        min_dist=request.min_dist,
+        metric="cosine",
+        random_state=42,
+        low_memory=True,
+        n_epochs=100,
+    )
+    coords_2d = reducer.fit_transform(X_base, sample_weight=weights)
 
     # 6. 결과 구성
     tracks = []
