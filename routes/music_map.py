@@ -184,7 +184,7 @@ async def music_map(request: MusicMapRequest):
         n_components=2,
         n_neighbors=n_neighbors,
         min_dist=request.min_dist,
-        metric="euclidean",
+        metric="cosine",
         random_state=42,
         low_memory=True,
         n_epochs=100,
