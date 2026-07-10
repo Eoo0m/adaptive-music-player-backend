@@ -176,6 +176,20 @@ async def music_map(request: MusicMapRequest):
         bridge_keys = set()
 
     # 4. 전체 트랙 목록 구성
+    # fill 각각에 대해 가장 가까운 seed 계산
+    seed_embs_normed = {k: v / (np.linalg.norm(v) + 1e-8) for k, v in seed_embs.items()}
+    seed_meta_map = {r["track_key"]: {"title": r["title"], "artist": r["artist"]} for r in seed_rows}
+
+    def nearest_seed(emb_arr):
+        n = emb_arr / (np.linalg.norm(emb_arr) + 1e-8)
+        best_key, best_sim = None, -2.0
+        for sk, se in seed_embs_normed.items():
+            s = float(np.dot(n, se))
+            if s > best_sim:
+                best_sim = s
+                best_key = sk
+        return best_key
+
     all_rows = list(seed_rows) + fill_rows_all
     all_embs = []
     all_meta = []
@@ -186,6 +200,9 @@ async def music_map(request: MusicMapRequest):
             continue
         emb = np.array(json_module.loads(emb_str), dtype=np.float32)
         all_embs.append(emb)
+        is_seed = row["track_key"] in seed_set
+        ns_key = None if is_seed else nearest_seed(emb)
+        ns_meta = seed_meta_map.get(ns_key) if ns_key else None
         all_meta.append({
             "track_key": row["track_key"],
             "title": row["title"],
@@ -193,9 +210,12 @@ async def music_map(request: MusicMapRequest):
             "album": row["album"],
             "cover_image_url": row["cover_image_url"],
             "playlist_count": row["playlist_count"],
-            "is_seed": row["track_key"] in seed_set,
+            "is_seed": is_seed,
             "is_favorite": row["track_key"] in favorite_set,
             "is_bridge": row["track_key"] in bridge_keys,
+            "nearest_seed_key": ns_key,
+            "nearest_seed_title": ns_meta["title"] if ns_meta else None,
+            "nearest_seed_artist": ns_meta["artist"] if ns_meta else None,
         })
 
     if len(all_embs) < 2:
