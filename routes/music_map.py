@@ -109,11 +109,14 @@ async def music_map(request: MusicMapRequest):
 
     seen = set(seed_key_set)
     fill_rows_all = []
-    for rows in seed_fill_results:
+    fill_source_seed = {}  # track_key → seed_key (어느 시드에서 뽑혔는지)
+    for seed_key, rows in zip(seed_keys_found, seed_fill_results):
         for r in rows:
-            if r["track_key"] not in seen:
-                seen.add(r["track_key"])
+            tk = r["track_key"]
+            if tk not in seen:
+                seen.add(tk)
                 fill_rows_all.append(r)
+                fill_source_seed[tk] = seed_key
 
     # 3. bridge fill: 거리 먼 seed 쌍 사이 중간 벡터로 보간
     keys = list(seed_embs.keys())
@@ -121,39 +124,38 @@ async def music_map(request: MusicMapRequest):
         pairs = []
         for i in range(len(keys)):
             for j in range(i + 1, len(keys)):
-                ea, eb = seed_embs[keys[i]], seed_embs[keys[j]]
+                ka, kb = keys[i], keys[j]
+                ea, eb = seed_embs[ka], seed_embs[kb]
                 dist = float(np.linalg.norm(ea - eb))
-                pairs.append((dist, ea, eb))
+                pairs.append((dist, ea, eb, ka, kb))
 
         max_dist = max(p[0] for p in pairs) or 1.0
         bridge_base = max(request.bridge_per_pair, 5)
 
         pairs.sort(reverse=True)
         MAX_BRIDGE_PAIRS = 15
-        # (mid_vec, n_per_point, ea, eb) — ea/eb는 검증용
+        # (mid_vec, n_per_point, ea, eb, threshold, key_a, key_b) — ea/eb는 검증용
         bridge_queries = []
-        for dist, ea, eb in pairs[:MAX_BRIDGE_PAIRS]:
+        for dist, ea, eb, key_a, key_b in pairs[:MAX_BRIDGE_PAIRS]:
             n_interp = max(1, min(3, round((dist / max_dist) * 5)))
             n_per_point = max(3, round(bridge_base * (dist / max_dist)))
-            # 양쪽 seed 유사도 threshold: 각 seed의 fill 최솟값 대신
-            # 두 seed 간 유사도의 절반을 기준으로 사용
             sim_ab = float(np.dot(ea, eb) / (np.linalg.norm(ea) * np.linalg.norm(eb) + 1e-8))
             threshold = max(sim_ab, 0.2)
             for k in range(1, n_interp + 1):
                 t = k / (n_interp + 1)
                 mid = (1 - t) * ea + t * eb
                 mid = mid / (np.linalg.norm(mid) + 1e-8)
-                bridge_queries.append((mid, n_per_point, ea, eb, threshold))
+                bridge_queries.append((mid, n_per_point, ea, eb, threshold, key_a, key_b))
 
         # bridge는 seed만 제외하고 조회 (fill과 겹쳐도 is_bridge 우선)
         bridge_results = await asyncio.gather(*[
             fetch_near_raw(emb, limit, exclude_base) for emb, limit, *_ in bridge_queries
         ])
         bridge_keys = set()
-        for (_, limit, ea, eb, threshold), rows in zip(bridge_queries, bridge_results):
+        bridge_info = {}  # track_key → {key_a, key_b, sim_a, sim_b}
+        for (_, limit, ea, eb, threshold, key_a, key_b), rows in zip(bridge_queries, bridge_results):
             ea_n = ea / (np.linalg.norm(ea) + 1e-8)
             eb_n = eb / (np.linalg.norm(eb) + 1e-8)
-            # 양쪽 sim 기준으로 정렬 후 절반만 취함
             candidates = []
             for r in rows:
                 tk = r["track_key"]
@@ -164,31 +166,26 @@ async def music_map(request: MusicMapRequest):
                 sim_a = float(np.dot(cemb_n, ea_n))
                 sim_b = float(np.dot(cemb_n, eb_n))
                 if sim_a >= threshold and sim_b >= threshold:
-                    candidates.append((min(sim_a, sim_b), r))  # 둘 중 낮은 쪽 기준 정렬
+                    candidates.append((min(sim_a, sim_b), sim_a, sim_b, r))
             candidates.sort(reverse=True)
-            for _, r in candidates[:max(1, len(candidates) // 2)]:
+            for _, sim_a, sim_b, r in candidates[:max(1, len(candidates) // 2)]:
                 tk = r["track_key"]
                 bridge_keys.add(tk)
                 if tk not in seen:
                     seen.add(tk)
                     fill_rows_all.append(r)
+                # 이미 다른 bridge pair에서 등록됐어도 info 덮어쓰기 (더 최근 pair)
+                bridge_info[tk] = {
+                    "bridge_seed_a_key": key_a,
+                    "bridge_seed_b_key": key_b,
+                    "bridge_sim_a": round(sim_a, 3),
+                    "bridge_sim_b": round(sim_b, 3),
+                }
     else:
         bridge_keys = set()
 
     # 4. 전체 트랙 목록 구성
-    # fill 각각에 대해 가장 가까운 seed 계산
-    seed_embs_normed = {k: v / (np.linalg.norm(v) + 1e-8) for k, v in seed_embs.items()}
     seed_meta_map = {r["track_key"]: {"title": r["title"], "artist": r["artist"]} for r in seed_rows}
-
-    def nearest_seed(emb_arr):
-        n = emb_arr / (np.linalg.norm(emb_arr) + 1e-8)
-        best_key, best_sim = None, -2.0
-        for sk, se in seed_embs_normed.items():
-            s = float(np.dot(n, se))
-            if s > best_sim:
-                best_sim = s
-                best_key = sk
-        return best_key
 
     all_rows = list(seed_rows) + fill_rows_all
     all_embs = []
@@ -200,22 +197,39 @@ async def music_map(request: MusicMapRequest):
             continue
         emb = np.array(json_module.loads(emb_str), dtype=np.float32)
         all_embs.append(emb)
-        is_seed = row["track_key"] in seed_set
-        ns_key = None if is_seed else nearest_seed(emb)
-        ns_meta = seed_meta_map.get(ns_key) if ns_key else None
+        tk = row["track_key"]
+        is_seed = tk in seed_set
+        is_bridge = tk in bridge_keys
+
+        # fill: 어느 시드에서 뽑혔는지
+        source_key = fill_source_seed.get(tk)
+        source_meta = seed_meta_map.get(source_key) if source_key else None
+
+        # bridge: 두 시드 정보 + 유사도
+        bi = bridge_info.get(tk) if is_bridge else None
+        if bi:
+            ka, kb = bi["bridge_seed_a_key"], bi["bridge_seed_b_key"]
+            ma, mb = seed_meta_map.get(ka), seed_meta_map.get(kb)
+            bridge_seed_a = {"key": ka, "title": ma["title"] if ma else None, "artist": ma["artist"] if ma else None, "sim": bi["bridge_sim_a"]}
+            bridge_seed_b = {"key": kb, "title": mb["title"] if mb else None, "artist": mb["artist"] if mb else None, "sim": bi["bridge_sim_b"]}
+        else:
+            bridge_seed_a = bridge_seed_b = None
+
         all_meta.append({
-            "track_key": row["track_key"],
+            "track_key": tk,
             "title": row["title"],
             "artist": row["artist"],
             "album": row["album"],
             "cover_image_url": row["cover_image_url"],
             "playlist_count": row["playlist_count"],
             "is_seed": is_seed,
-            "is_favorite": row["track_key"] in favorite_set,
-            "is_bridge": row["track_key"] in bridge_keys,
-            "nearest_seed_key": ns_key,
-            "nearest_seed_title": ns_meta["title"] if ns_meta else None,
-            "nearest_seed_artist": ns_meta["artist"] if ns_meta else None,
+            "is_favorite": tk in favorite_set,
+            "is_bridge": is_bridge,
+            "source_seed_key": source_key,
+            "source_seed_title": source_meta["title"] if source_meta else None,
+            "source_seed_artist": source_meta["artist"] if source_meta else None,
+            "bridge_seed_a": bridge_seed_a,
+            "bridge_seed_b": bridge_seed_b,
         })
 
     if len(all_embs) < 2:
