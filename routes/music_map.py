@@ -130,29 +130,45 @@ async def music_map(request: MusicMapRequest):
 
         pairs.sort(reverse=True)
         MAX_BRIDGE_PAIRS = 15
+        # (mid_vec, n_per_point, ea, eb) — ea/eb는 검증용
         bridge_queries = []
         for dist, ea, eb in pairs[:MAX_BRIDGE_PAIRS]:
             n_interp = max(1, min(3, round((dist / max_dist) * 5)))
             n_per_point = max(3, round(bridge_base * (dist / max_dist)))
+            # 양쪽 seed 유사도 threshold: 각 seed의 fill 최솟값 대신
+            # 두 seed 간 유사도의 절반을 기준으로 사용
+            sim_ab = float(np.dot(ea, eb) / (np.linalg.norm(ea) * np.linalg.norm(eb) + 1e-8))
+            # threshold: 두 seed 사이 유사도보다는 높아야 진짜 중간 곡
+            threshold = max(sim_ab, 0.2)
             for k in range(1, n_interp + 1):
                 t = k / (n_interp + 1)
                 mid = (1 - t) * ea + t * eb
                 mid = mid / (np.linalg.norm(mid) + 1e-8)
-                bridge_queries.append((mid, n_per_point))
+                bridge_queries.append((mid, n_per_point, ea, eb, threshold))
 
         # bridge는 seed만 제외하고 조회 (fill과 겹쳐도 is_bridge 우선)
         bridge_results = await asyncio.gather(*[
-            fetch_near_raw(emb, limit, exclude_base) for emb, limit in bridge_queries
+            fetch_near_raw(emb, limit, exclude_base) for emb, limit, *_ in bridge_queries
         ])
         bridge_keys = set()
-        for rows in bridge_results:
+        for (_, _, ea, eb, threshold), rows in zip(bridge_queries, bridge_results):
+            ea_n = ea / (np.linalg.norm(ea) + 1e-8)
+            eb_n = eb / (np.linalg.norm(eb) + 1e-8)
             for r in rows:
                 tk = r["track_key"]
-                if tk not in seed_key_set:
-                    bridge_keys.add(tk)
-                    if tk not in seen:
-                        seen.add(tk)
-                        fill_rows_all.append(r)
+                if tk in seed_key_set:
+                    continue
+                # 양쪽 seed 모두와 threshold 이상 유사한지 검증
+                cemb = np.array(json_module.loads(r["embedding"]), dtype=np.float32)
+                cemb_n = cemb / (np.linalg.norm(cemb) + 1e-8)
+                sim_a = float(np.dot(cemb_n, ea_n))
+                sim_b = float(np.dot(cemb_n, eb_n))
+                if sim_a < threshold or sim_b < threshold:
+                    continue  # 한쪽 seed와 너무 멀면 bridge 아님
+                bridge_keys.add(tk)
+                if tk not in seen:
+                    seen.add(tk)
+                    fill_rows_all.append(r)
     else:
         bridge_keys = set()
 
