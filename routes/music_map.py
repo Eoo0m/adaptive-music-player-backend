@@ -98,44 +98,22 @@ async def music_map(request: MusicMapRequest):
             limit,
         )
 
-    # 2. seed별 fill 병렬 조회 (속도 유지)
+    # 2. seed별 fill 병렬 조회
     fill_per_seed = max(request.fill_per_seed, 10)
     exclude_base = list(seed_key_set)
 
     seed_fill_results = await asyncio.gather(*[
-        fetch_near_raw(seed_embs[key], fill_per_seed * 3, exclude_base)
+        fetch_near_raw(seed_embs[key], fill_per_seed, exclude_base)
         for key in seed_keys_found
     ])
 
-    # 후보 풀 수집 (중복 포함, embedding도 파싱)
-    candidate_pool = {}  # track_key → (row, emb)
-    for rows in seed_fill_results:
-        for r in rows:
-            if r["track_key"] not in seed_key_set and r["track_key"] not in candidate_pool:
-                emb = np.array(json_module.loads(r["embedding"]), dtype=np.float32)
-                candidate_pool[r["track_key"]] = (r, emb)
-
-    # 각 후보를 "가장 가까운 seed"에 배분 — 코사인 거리 기준
-    seed_keys_list = list(seed_embs.keys())
-    seed_embs_arr = np.array([seed_embs[k] for k in seed_keys_list], dtype=np.float32)  # (S, D)
-
-    buckets = {k: [] for k in seed_keys_list}
-    for tk, (row, emb) in candidate_pool.items():
-        dists = 1.0 - (seed_embs_arr @ emb) / (
-            np.linalg.norm(seed_embs_arr, axis=1) * np.linalg.norm(emb) + 1e-8
-        )
-        nearest = seed_keys_list[int(np.argmin(dists))]
-        buckets[nearest].append((float(dists.min()), row))
-
-    # 각 bucket에서 가까운 순으로 fill_per_seed개 선택
     seen = set(seed_key_set)
     fill_rows_all = []
-    for key in seed_keys_list:
-        buckets[key].sort(key=lambda x: x[0])
-        for _, row in buckets[key][:fill_per_seed]:
-            if row["track_key"] not in seen:
-                seen.add(row["track_key"])
-                fill_rows_all.append(row)
+    for rows in seed_fill_results:
+        for r in rows:
+            if r["track_key"] not in seen:
+                seen.add(r["track_key"])
+                fill_rows_all.append(r)
 
     # 3. bridge fill: 거리 먼 seed 쌍 사이 중간 벡터로 보간
     keys = list(seed_embs.keys())
