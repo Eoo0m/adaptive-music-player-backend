@@ -247,26 +247,40 @@ async def music_map(request: MusicMapRequest):
         f"{bridge_count} bridges → total={len(all_embs)}"
     )
 
-    # 5. 규칙 기반 2D 배치 (UMAP 없음)
-    from sklearn.manifold import MDS
+    # 5. 배치: 시드는 UMAP, fill/bridge는 규칙 기반
+    try:
+        import umap as umap_module
+    except ImportError:
+        raise HTTPException(status_code=500, detail="umap-learn 패키지가 필요합니다")
 
     seed_list = [m for m in all_meta if m["is_seed"]]
     seed_keys_ordered = [m["track_key"] for m in seed_list]
     seed_embs_arr = np.array([seed_embs[k] for k in seed_keys_ordered], dtype=np.float32)
 
-    # 5-1. 시드 위치: MDS (코사인 거리 행렬)
+    # 5-1. 시드 위치: UMAP (시드 수가 많을 때 유사도 구조 반영)
     n_seeds = len(seed_keys_ordered)
     if n_seeds == 1:
         seed_pos = {seed_keys_ordered[0]: np.array([0.0, 0.0])}
-    else:
+    elif n_seeds <= 3:
+        # 시드가 적으면 MDS (UMAP은 최소 n_neighbors+1개 필요)
+        from sklearn.manifold import MDS
         seed_n = seed_embs_arr / (np.linalg.norm(seed_embs_arr, axis=1, keepdims=True) + 1e-8)
         cos_dist = np.clip(1.0 - seed_n @ seed_n.T, 0, 2).astype(np.float64)
         mds = MDS(n_components=2, dissimilarity="precomputed", random_state=42, normalized_stress=False)
-        mds_coords = mds.fit_transform(cos_dist)  # (n_seeds, 2)
-        # MDS 결과를 [-5, 5] 범위로 정규화
+        mds_coords = mds.fit_transform(cos_dist)
         rng = mds_coords.max(axis=0) - mds_coords.min(axis=0) + 1e-8
         mds_coords = (mds_coords - mds_coords.mean(axis=0)) / rng.max() * 10.0
         seed_pos = {k: mds_coords[i] for i, k in enumerate(seed_keys_ordered)}
+    else:
+        n_neighbors = min(10, n_seeds - 1)
+        reducer = umap_module.UMAP(
+            n_components=2, n_neighbors=n_neighbors, min_dist=0.1,
+            metric="cosine", random_state=42, low_memory=True, n_epochs=200,
+        )
+        umap_coords = reducer.fit_transform(seed_embs_arr)  # (n_seeds, 2)
+        rng = umap_coords.max(axis=0) - umap_coords.min(axis=0) + 1e-8
+        umap_coords = (umap_coords - umap_coords.mean(axis=0)) / rng.max() * 10.0
+        seed_pos = {k: umap_coords[i] for i, k in enumerate(seed_keys_ordered)}
 
     # 시드 임베딩 정규화 (fill 유사도 계산용)
     seed_embs_n = {k: seed_embs[k] / (np.linalg.norm(seed_embs[k]) + 1e-8) for k in seed_keys_ordered}
