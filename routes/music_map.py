@@ -138,7 +138,6 @@ async def music_map(request: MusicMapRequest):
             # 양쪽 seed 유사도 threshold: 각 seed의 fill 최솟값 대신
             # 두 seed 간 유사도의 절반을 기준으로 사용
             sim_ab = float(np.dot(ea, eb) / (np.linalg.norm(ea) * np.linalg.norm(eb) + 1e-8))
-            # threshold: 두 seed 사이 유사도보다는 높아야 진짜 중간 곡
             threshold = max(sim_ab, 0.2)
             for k in range(1, n_interp + 1):
                 t = k / (n_interp + 1)
@@ -151,20 +150,24 @@ async def music_map(request: MusicMapRequest):
             fetch_near_raw(emb, limit, exclude_base) for emb, limit, *_ in bridge_queries
         ])
         bridge_keys = set()
-        for (_, _, ea, eb, threshold), rows in zip(bridge_queries, bridge_results):
+        for (_, limit, ea, eb, threshold), rows in zip(bridge_queries, bridge_results):
             ea_n = ea / (np.linalg.norm(ea) + 1e-8)
             eb_n = eb / (np.linalg.norm(eb) + 1e-8)
+            # 양쪽 sim 기준으로 정렬 후 절반만 취함
+            candidates = []
             for r in rows:
                 tk = r["track_key"]
                 if tk in seed_key_set:
                     continue
-                # 양쪽 seed 모두와 threshold 이상 유사한지 검증
                 cemb = np.array(json_module.loads(r["embedding"]), dtype=np.float32)
                 cemb_n = cemb / (np.linalg.norm(cemb) + 1e-8)
                 sim_a = float(np.dot(cemb_n, ea_n))
                 sim_b = float(np.dot(cemb_n, eb_n))
-                if sim_a < threshold or sim_b < threshold:
-                    continue  # 한쪽 seed와 너무 멀면 bridge 아님
+                if sim_a >= threshold and sim_b >= threshold:
+                    candidates.append((min(sim_a, sim_b), r))  # 둘 중 낮은 쪽 기준 정렬
+            candidates.sort(reverse=True)
+            for _, r in candidates[:max(1, len(candidates) // 2)]:
+                tk = r["track_key"]
                 bridge_keys.add(tk)
                 if tk not in seen:
                     seen.add(tk)
