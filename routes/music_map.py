@@ -242,14 +242,14 @@ async def music_map(request: MusicMapRequest):
         f"{bridge_count} bridges → UMAP total={len(all_embs)}"
     )
 
-    # 5. UMAP 2D 변환 (seed 곡에 가중치 3배)
+    # 5. UMAP 2D 변환
     try:
         import umap
     except ImportError:
         raise HTTPException(status_code=500, detail="umap-learn 패키지가 필요합니다")
 
     X_base = np.array(all_embs, dtype=np.float32)
-    weights = np.array([3.0 if m["is_seed"] else 1.0 for m in all_meta], dtype=np.float32)
+    seed_indices = [i for i, m in enumerate(all_meta) if m["is_seed"]]
     n_neighbors = min(request.n_neighbors, len(X_base) - 1)
 
     reducer = umap.UMAP(
@@ -261,7 +261,55 @@ async def music_map(request: MusicMapRequest):
         low_memory=True,
         n_epochs=50,
     )
-    coords_2d = reducer.fit_transform(X_base, sample_weight=weights)
+    coords_2d = reducer.fit_transform(X_base)
+
+    # 5-1. 시드 위치를 MDS(코사인 거리 기반)로 다시 계산해서 고정
+    if len(seed_indices) >= 2:
+        from sklearn.manifold import MDS
+        seed_vecs = np.array([all_embs[i] for i in seed_indices], dtype=np.float32)
+        # 코사인 거리 행렬
+        norms = np.linalg.norm(seed_vecs, axis=1, keepdims=True) + 1e-8
+        seed_vecs_n = seed_vecs / norms
+        cos_sim = seed_vecs_n @ seed_vecs_n.T
+        cos_dist = np.clip(1.0 - cos_sim, 0, 2).astype(np.float64)
+        mds = MDS(n_components=2, dissimilarity="precomputed", random_state=42, normalized_stress=False)
+        seed_coords_mds = mds.fit_transform(cos_dist)  # 시드의 목표 2D 좌표
+
+        # 5-2. UMAP 시드 좌표 → MDS 시드 좌표로 맞추는 affine transform (최소제곱)
+        # UMAP 시드 좌표
+        umap_seed = np.array([coords_2d[i] for i in seed_indices], dtype=np.float64)
+        mds_seed = seed_coords_mds.astype(np.float64)
+
+        # scale을 UMAP 전체 범위에 맞게 조정
+        umap_range = coords_2d.max(axis=0) - coords_2d.min(axis=0) + 1e-8
+        mds_range = mds_seed.max(axis=0) - mds_seed.min(axis=0) + 1e-8
+        scale = (umap_range / mds_range).mean()
+        mds_seed_scaled = (mds_seed - mds_seed.mean(axis=0)) * scale + coords_2d[seed_indices].mean(axis=0)
+
+        # 각 시드에 대해 UMAP→MDS 차이 계산 후 전체 좌표에 weighted 보정 적용
+        # 각 non-seed 포인트는 가장 가까운 시드 방향으로 잡아당김
+        seed_embs_arr = np.array([all_embs[i] for i in seed_indices], dtype=np.float32)
+        seed_embs_arr_n = seed_embs_arr / (np.linalg.norm(seed_embs_arr, axis=1, keepdims=True) + 1e-8)
+
+        delta = mds_seed_scaled - umap_seed  # 각 시드의 이동량
+
+        new_coords = coords_2d.copy()
+        for i, meta in enumerate(all_meta):
+            if meta["is_seed"]:
+                # 시드는 MDS 위치로 직접 교체
+                sidx = seed_indices.index(i)
+                new_coords[i] = mds_seed_scaled[sidx]
+            else:
+                # fill: 각 시드와의 코사인 유사도로 가중합 이동
+                emb_n = all_embs[i] / (np.linalg.norm(all_embs[i]) + 1e-8)
+                sims = seed_embs_arr_n @ emb_n  # (n_seeds,)
+                sims = np.clip(sims, 0, 1)
+                w_sum = sims.sum()
+                if w_sum > 1e-8:
+                    weights_arr = sims / w_sum
+                    correction = weights_arr @ delta  # 가중합 이동량
+                    new_coords[i] = coords_2d[i] + correction
+        coords_2d = new_coords
 
     # 6. 결과 구성
     tracks = []
