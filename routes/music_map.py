@@ -235,89 +235,107 @@ async def music_map(request: MusicMapRequest):
     if len(all_embs) < 2:
         raise HTTPException(status_code=500, detail="임베딩 데이터가 부족합니다")
 
+    # track_key → embedding 맵 (규칙 기반 배치용)
+    all_embs_map = {all_meta[i]["track_key"]: all_embs[i] for i in range(len(all_meta))}
+
     bridge_count = len(bridge_keys)
     fill_only_count = len(fill_rows_all) - bridge_count
     logger.info(
         f"music-map: {len(seed_rows)} seeds, {fill_only_count} fills, "
-        f"{bridge_count} bridges → UMAP total={len(all_embs)}"
+        f"{bridge_count} bridges → total={len(all_embs)}"
     )
 
-    # 5. UMAP 2D 변환
-    try:
-        import umap
-    except ImportError:
-        raise HTTPException(status_code=500, detail="umap-learn 패키지가 필요합니다")
+    # 5. 규칙 기반 2D 배치 (UMAP 없음)
+    from sklearn.manifold import MDS
 
-    X_base = np.array(all_embs, dtype=np.float32)
-    seed_indices = [i for i, m in enumerate(all_meta) if m["is_seed"]]
-    n_neighbors = min(request.n_neighbors, len(X_base) - 1)
+    seed_list = [m for m in all_meta if m["is_seed"]]
+    seed_keys_ordered = [m["track_key"] for m in seed_list]
+    seed_embs_arr = np.array([seed_embs[k] for k in seed_keys_ordered], dtype=np.float32)
 
-    reducer = umap.UMAP(
-        n_components=2,
-        n_neighbors=n_neighbors,
-        min_dist=request.min_dist,
-        metric="cosine",
-        random_state=42,
-        low_memory=True,
-        n_epochs=50,
-    )
-    coords_2d = reducer.fit_transform(X_base)
-
-    # 5-1. 시드 위치를 MDS(코사인 거리 기반)로 다시 계산해서 고정
-    if len(seed_indices) >= 2:
-        from sklearn.manifold import MDS
-        seed_vecs = np.array([all_embs[i] for i in seed_indices], dtype=np.float32)
-        # 코사인 거리 행렬
-        norms = np.linalg.norm(seed_vecs, axis=1, keepdims=True) + 1e-8
-        seed_vecs_n = seed_vecs / norms
-        cos_sim = seed_vecs_n @ seed_vecs_n.T
-        cos_dist = np.clip(1.0 - cos_sim, 0, 2).astype(np.float64)
+    # 5-1. 시드 위치: MDS (코사인 거리 행렬)
+    n_seeds = len(seed_keys_ordered)
+    if n_seeds == 1:
+        seed_pos = {seed_keys_ordered[0]: np.array([0.0, 0.0])}
+    else:
+        seed_n = seed_embs_arr / (np.linalg.norm(seed_embs_arr, axis=1, keepdims=True) + 1e-8)
+        cos_dist = np.clip(1.0 - seed_n @ seed_n.T, 0, 2).astype(np.float64)
         mds = MDS(n_components=2, dissimilarity="precomputed", random_state=42, normalized_stress=False)
-        seed_coords_mds = mds.fit_transform(cos_dist)  # 시드의 목표 2D 좌표
+        mds_coords = mds.fit_transform(cos_dist)  # (n_seeds, 2)
+        # MDS 결과를 [-5, 5] 범위로 정규화
+        rng = mds_coords.max(axis=0) - mds_coords.min(axis=0) + 1e-8
+        mds_coords = (mds_coords - mds_coords.mean(axis=0)) / rng.max() * 10.0
+        seed_pos = {k: mds_coords[i] for i, k in enumerate(seed_keys_ordered)}
 
-        # 5-2. UMAP 시드 좌표 → MDS 시드 좌표로 맞추는 affine transform (최소제곱)
-        # UMAP 시드 좌표
-        umap_seed = np.array([coords_2d[i] for i in seed_indices], dtype=np.float64)
-        mds_seed = seed_coords_mds.astype(np.float64)
+    # 시드 임베딩 정규화 (fill 유사도 계산용)
+    seed_embs_n = {k: seed_embs[k] / (np.linalg.norm(seed_embs[k]) + 1e-8) for k in seed_keys_ordered}
 
-        # scale을 UMAP 전체 범위에 맞게 조정
-        umap_range = coords_2d.max(axis=0) - coords_2d.min(axis=0) + 1e-8
-        mds_range = mds_seed.max(axis=0) - mds_seed.min(axis=0) + 1e-8
-        scale = (umap_range / mds_range).mean()
-        mds_seed_scaled = (mds_seed - mds_seed.mean(axis=0)) * scale + coords_2d[seed_indices].mean(axis=0)
+    # 5-2. fill 위치: 소속 시드 중심 + 유사도 기반 반지름 + 각도 분산
+    # 같은 시드 소속 fill끼리 각도를 균등 분산
+    from collections import defaultdict
+    seed_fill_list = defaultdict(list)  # seed_key → [track_key, ...]
+    for m in all_meta:
+        if not m["is_seed"] and not m["is_bridge"] and m["source_seed_key"]:
+            seed_fill_list[m["source_seed_key"]].append(m["track_key"])
 
-        # 각 시드에 대해 UMAP→MDS 차이 계산 후 전체 좌표에 weighted 보정 적용
-        # 각 non-seed 포인트는 가장 가까운 시드 방향으로 잡아당김
-        seed_embs_arr = np.array([all_embs[i] for i in seed_indices], dtype=np.float32)
-        seed_embs_arr_n = seed_embs_arr / (np.linalg.norm(seed_embs_arr, axis=1, keepdims=True) + 1e-8)
+    fill_pos = {}
+    FILL_RADIUS_BASE = 2.5  # 시드 주변 반지름 기본값
 
-        delta = mds_seed_scaled - umap_seed  # 각 시드의 이동량
+    for sk, fill_keys in seed_fill_list.items():
+        center = seed_pos[sk]
+        sn = seed_embs_n[sk]
+        n_fills = len(fill_keys)
+        for idx, tk in enumerate(fill_keys):
+            # 유사도로 반지름 결정 (유사도 높을수록 시드에 가까이)
+            emb = all_embs_map[tk]
+            emb_n = emb / (np.linalg.norm(emb) + 1e-8)
+            sim = float(np.dot(emb_n, sn))
+            radius = FILL_RADIUS_BASE * (1.1 - sim)  # sim=1이면 반지름 작음, sim=0이면 큼
+            radius = max(0.3, min(FILL_RADIUS_BASE * 1.2, radius))
+            # 각도 균등 분산 + seed 방향 편향 제거
+            angle = (2 * np.pi * idx / n_fills) + (np.pi / n_fills * (hash(tk) % 2))
+            fill_pos[tk] = center + radius * np.array([np.cos(angle), np.sin(angle)])
 
-        new_coords = coords_2d.copy()
-        for i, meta in enumerate(all_meta):
-            if meta["is_seed"]:
-                # 시드는 MDS 위치로 직접 교체
-                sidx = seed_indices.index(i)
-                new_coords[i] = mds_seed_scaled[sidx]
-            else:
-                # fill: 각 시드와의 코사인 유사도로 가중합 이동
-                emb_n = all_embs[i] / (np.linalg.norm(all_embs[i]) + 1e-8)
-                sims = seed_embs_arr_n @ emb_n  # (n_seeds,)
-                sims = np.clip(sims, 0, 1)
-                w_sum = sims.sum()
-                if w_sum > 1e-8:
-                    weights_arr = sims / w_sum
-                    correction = weights_arr @ delta  # 가중합 이동량
-                    new_coords[i] = coords_2d[i] + correction
-        coords_2d = new_coords
+    # 5-3. bridge 위치: 두 시드 중간 + 유사도 기반 오프셋
+    bridge_pos = {}
+    BRIDGE_RADIUS = 0.8
+
+    for m in all_meta:
+        if not m["is_bridge"]:
+            continue
+        tk = m["track_key"]
+        bi = m.get("bridge_seed_a"), m.get("bridge_seed_b")
+        if bi[0] and bi[1]:
+            ka, kb = bi[0]["key"], bi[1]["key"]
+            pa, pb = seed_pos.get(ka, np.zeros(2)), seed_pos.get(kb, np.zeros(2))
+            sim_a = bi[0]["sim"]
+            sim_b = bi[1]["sim"]
+            # sim_a, sim_b 비율로 두 시드 사이 위치 결정
+            t = sim_b / (sim_a + sim_b + 1e-8)
+            mid = (1 - t) * pa + t * pb
+            # 수직 방향으로 작은 오프셋 (겹침 방지)
+            perp = np.array([-(pb - pa)[1], (pb - pa)[0]])
+            perp_norm = np.linalg.norm(perp) + 1e-8
+            offset_sign = 1 if hash(tk) % 2 == 0 else -1
+            bridge_pos[tk] = mid + offset_sign * (perp / perp_norm) * BRIDGE_RADIUS * np.random.default_rng(abs(hash(tk)) % 2**32).random()
+        else:
+            # fallback: 시드들의 평균 중간
+            center = np.mean([sp for sp in seed_pos.values()], axis=0)
+            bridge_pos[tk] = center + np.random.default_rng(abs(hash(tk)) % 2**32).normal(0, 0.5, 2)
 
     # 6. 결과 구성
     tracks = []
-    for i, meta in enumerate(all_meta):
+    for meta in all_meta:
+        tk = meta["track_key"]
+        if meta["is_seed"]:
+            xy = seed_pos[tk]
+        elif meta["is_bridge"]:
+            xy = bridge_pos.get(tk, np.zeros(2))
+        else:
+            xy = fill_pos.get(tk, seed_pos.get(meta.get("source_seed_key"), np.zeros(2)))
         tracks.append({
             **meta,
-            "x": float(coords_2d[i, 0]),
-            "y": float(coords_2d[i, 1]),
+            "x": float(xy[0]),
+            "y": float(xy[1]),
         })
 
     return {
