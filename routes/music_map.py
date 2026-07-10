@@ -221,7 +221,12 @@ async def music_map(request: MusicMapRequest):
     if len(all_embs) < 2:
         raise HTTPException(status_code=500, detail="임베딩 데이터가 부족합니다")
 
-    logger.info(f"music-map: {len(seed_rows)} seeds, {len(fill_rows_all)} fills, total={len(all_embs)}")
+    bridge_count = len(bridge_keys)
+    fill_only_count = len(fill_rows_all) - bridge_count
+    logger.info(
+        f"music-map: {len(seed_rows)} seeds, {fill_only_count} fills, "
+        f"{bridge_count} bridges → UMAP total={len(all_embs)}"
+    )
 
     # 5. UMAP 2D 변환 (seed 곡에 가중치 3배)
     try:
