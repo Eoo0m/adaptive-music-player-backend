@@ -177,8 +177,15 @@ async def music_map(request: MusicMapRequest):
     logger.info(f"music-map: {len(seed_rows)} seeds, {len(fill_rows_all)} fills, total={len(all_embs)}")
 
     # 5. UMAP 2D 변환
-    X = np.array(all_embs, dtype=np.float32)
-    n_neighbors = min(request.n_neighbors, len(X) - 1)
+    # seed 임베딩을 3배 반복 → UMAP이 seed 간 거리를 더 강하게 반영
+    seed_embs = [e for e, m in zip(all_embs, all_meta) if m["is_seed"]]
+    X_base = np.array(all_embs, dtype=np.float32)
+    SEED_REPEAT = 3
+    if seed_embs:
+        X_anchored = np.vstack([X_base] + [np.array(seed_embs, dtype=np.float32)] * (SEED_REPEAT - 1))
+    else:
+        X_anchored = X_base
+    n_neighbors = min(request.n_neighbors, len(X_anchored) - 1)
 
     reducer = umap.UMAP(
         n_components=2,
@@ -189,7 +196,8 @@ async def music_map(request: MusicMapRequest):
         low_memory=True,
         n_epochs=100,
     )
-    coords_2d = reducer.fit_transform(X)
+    coords_2d_full = reducer.fit_transform(X_anchored)
+    coords_2d = coords_2d_full[:len(all_embs)]  # 원본 곡 수만큼만 사용
 
     # 6. 결과 구성
     tracks = []
