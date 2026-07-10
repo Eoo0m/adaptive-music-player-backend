@@ -277,8 +277,11 @@ async def music_map(request: MusicMapRequest):
             metric="cosine", random_state=42, low_memory=True, n_epochs=200,
         )
         umap_coords = reducer.fit_transform(seed_embs_arr)  # (n_seeds, 2)
-        rng = umap_coords.max(axis=0) - umap_coords.min(axis=0) + 1e-8
-        umap_coords = (umap_coords - umap_coords.mean(axis=0)) / rng.max() * 10.0
+        # x, y 각각 독립적으로 [-5, 5] 정규화
+        for dim in range(2):
+            lo, hi = umap_coords[:, dim].min(), umap_coords[:, dim].max()
+            rng_d = hi - lo + 1e-8
+            umap_coords[:, dim] = (umap_coords[:, dim] - lo) / rng_d * 10.0 - 5.0
         seed_pos = {k: umap_coords[i] for i, k in enumerate(seed_keys_ordered)}
 
     # 시드 임베딩 정규화 (fill 유사도 계산용)
