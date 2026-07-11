@@ -128,31 +128,34 @@ async def find_similar_tracks(request: RecommendRequest):
 
         # 50곡 가져오기 (raw SQL)
         db_start_ms = now_ms()
+        # 쿼리 트랙 임베딩 먼저 별도 조회 (WITH 서브쿼리는 HNSW 인덱스 못 타는 경우 있음)
+        query_row = await pool.fetchrow(
+            "SELECT embedding::text FROM track_embeddings WHERE track_key = $1 LIMIT 1",
+            request.track_key,
+        )
+        if not query_row or not query_row["embedding"]:
+            raise HTTPException(status_code=404, detail="Track not found")
+
         rows = await pool.fetch(
             """
-            WITH query_track AS (
-                SELECT embedding
-                FROM track_embeddings
-                WHERE track_key = $1
-                LIMIT 1
-            )
             SELECT
-                t.id,
-                t.track_key::text,
-                t.title::text,
-                t.artist::text,
-                t.album::text,
-                t.playlist_count,
-                t.cover_image_url::text,
-                (1 - (t.embedding <=> q.embedding))::float AS similarity
-            FROM track_embeddings t, query_track q
-            WHERE t.track_key != $1
-              AND t.embedding IS NOT NULL
-            ORDER BY t.embedding <=> q.embedding
-            LIMIT $2
+                id,
+                track_key::text,
+                title::text,
+                artist::text,
+                album::text,
+                playlist_count,
+                cover_image_url::text,
+                (1 - (embedding <=> $2::vector))::float AS similarity
+            FROM track_embeddings
+            WHERE track_key != $1
+              AND embedding IS NOT NULL
+            ORDER BY embedding <=> $2::vector
+            LIMIT $3
             """,
             request.track_key,
-            50
+            query_row["embedding"],
+            50,
         )
         logger.info(
             f"[{request_id}] /find-similar-tracks vector_search="
