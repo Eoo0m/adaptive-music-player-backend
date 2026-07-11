@@ -128,19 +128,15 @@ async def music_map(request: MusicMapRequest):
         for r in seed_rows
     }
 
-    # 3. 시드만 UMAP
-    try:
-        import umap as umap_module
-    except ImportError:
-        raise HTTPException(status_code=500, detail="umap-learn 패키지가 필요합니다")
+    # 3. 시드만 MDS (코사인 거리 기반)
+    from sklearn.manifold import MDS
 
     n_seeds = len(seed_keys_found)
     seed_embs_arr = np.array([seed_embs[k] for k in seed_keys_found], dtype=np.float32)
 
     if n_seeds == 1:
-        seed_coords = {seed_keys_found[0]: (0, 0)}
-    elif n_seeds <= 3:
-        from sklearn.manifold import MDS
+        seed_coords = {seed_keys_found[0]: (0.5, 0.5)}
+    else:
         seed_n = seed_embs_arr / (np.linalg.norm(seed_embs_arr, axis=1, keepdims=True) + 1e-8)
         cos_dist = np.clip(1.0 - seed_n @ seed_n.T, 0, 2).astype(np.float64)
         mds = MDS(n_components=2, dissimilarity="precomputed", random_state=42, normalized_stress=False)
@@ -148,20 +144,9 @@ async def music_map(request: MusicMapRequest):
         for dim in range(2):
             lo, hi = coords[:, dim].min(), coords[:, dim].max()
             coords[:, dim] = (coords[:, dim] - lo) / (hi - lo + 1e-8)
-        seed_coords = {k: coords[i] for i, k in enumerate(seed_keys_found)}
-    else:
-        n_neighbors = min(15, n_seeds - 1)
-        reducer = umap_module.UMAP(
-            n_components=2, n_neighbors=n_neighbors, min_dist=0.3,
-            metric="cosine", random_state=42, low_memory=True, n_epochs=200,
-        )
-        coords = reducer.fit_transform(seed_embs_arr)
-        for dim in range(2):
-            lo, hi = coords[:, dim].min(), coords[:, dim].max()
-            coords[:, dim] = (coords[:, dim] - lo) / (hi - lo + 1e-8)
-        seed_coords = {k: coords[i] for i, k in enumerate(seed_keys_found)}
+        seed_coords = {k: tuple(coords[i]) for i, k in enumerate(seed_keys_found)}
 
-    elapsed("3. UMAP (시드만)")
+    elapsed("3. MDS (시드만)")
 
     # 4. 시드 UMAP 좌표 → 격자 스냅
     # 시드 간 간격을 fill 수에 비례해 여유있게 확보
