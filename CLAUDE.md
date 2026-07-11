@@ -48,6 +48,16 @@ experiments/         # HNSW recall 실험 등
 - `user_favorites` — 찜 목록
 - `user_action_logs` — 유저 행동 로그 (search, select, favorite, play)
 
+## track_embeddings 임베딩 컬럼 용도
+
+| 컬럼 | 차원 | 모델 | 용도 | HNSW 인덱스 |
+|---|---|---|---|---|
+| `embedding` | 64d | 음악 유사도 모델 | 트랙 간 음악적 유사도 (find-similar-tracks, music-map) | 확인 필요 |
+| `projected_embedding` | 512d | CLIP 프로젝션 | 텍스트 키워드 → 음악 매핑 (search-by-keyword) | O (`vector_cosine_ops`) |
+| `itemtower_embedding` | 128d | Two-Tower item tower | 세션 기반 추천 (recommend) | 확인 필요 |
+
+**혼용 금지**: `embedding`을 키워드 검색에 쓰거나, `projected_embedding`을 유사곡 검색에 쓰면 결과가 엉뚱해짐.
+
 ## Deploy
 ```bash
 # NCP 서버에서
