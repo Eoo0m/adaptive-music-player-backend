@@ -239,35 +239,54 @@ async def music_map(request: MusicMapRequest):
 
     elapsed("5. 빈 행·열 압축")
 
-    # 8. 4방향 중력 압축: 상하좌우 반복으로 사각형에 가깝게 뭉침
-    def compress_direction(cells: dict, axis: int, reverse: bool) -> dict:
-        """한 방향으로 트랙을 밀어 빈틈 제거. axis=0: col방향, axis=1: row방향"""
-        from collections import defaultdict
-        groups = defaultdict(list)
-        for tk, pos in cells.items():
-            key = pos[1 - axis]  # 고정 축
-            groups[key].append((pos[axis], tk))
-        result = {}
-        for key, items in groups.items():
-            items.sort(reverse=reverse)
-            for new_idx, (_, tk) in enumerate(items):
-                idx = (len(items) - 1 - new_idx) if reverse else new_idx
-                if axis == 0:
-                    result[tk] = (idx, key)
-                else:
-                    result[tk] = (key, idx)
-        return result
+    # 8. 중심으로 당기기: 각 트랙을 전체 중심 방향으로 한 칸씩 당겨 원형으로 뭉침
+    for iteration in range(30):
+        moved = False
+        occupied_set = set(final_cells.values())
 
-    for _ in range(5):  # 수렴할 때까지 반복
-        prev = dict(final_cells)
-        final_cells = compress_direction(final_cells, axis=1, reverse=False)  # 위로
-        final_cells = compress_direction(final_cells, axis=0, reverse=False)  # 왼쪽으로
-        final_cells = compress_direction(final_cells, axis=1, reverse=True)   # 아래로
-        final_cells = compress_direction(final_cells, axis=0, reverse=True)   # 오른쪽으로
-        if final_cells == prev:
+        # 현재 중심 계산
+        all_pos = list(final_cells.values())
+        cx = sum(p[0] for p in all_pos) / len(all_pos)
+        cy = sum(p[1] for p in all_pos) / len(all_pos)
+
+        # 중심에서 먼 트랙부터 처리 (바깥쪽이 먼저 움직여야 안쪽이 막히지 않음)
+        order = sorted(final_cells.keys(), key=lambda tk: -(
+            (final_cells[tk][0] - cx) ** 2 + (final_cells[tk][1] - cy) ** 2
+        ))
+
+        for tk in order:
+            c, r = final_cells[tk]
+            dc = cx - c
+            dr = cy - r
+            dist = (dc ** 2 + dr ** 2) ** 0.5
+            if dist < 0.5:
+                continue
+
+            # 중심 방향으로 한 칸 이동 후보 (가장 중심에 가까운 방향 우선)
+            steps = []
+            if abs(dc) >= abs(dr):
+                steps.append((int(round(dc / abs(dc))), 0))
+                if abs(dr) > 0.3:
+                    steps.append((0, int(round(dr / abs(dr)))))
+            else:
+                steps.append((0, int(round(dr / abs(dr)))))
+                if abs(dc) > 0.3:
+                    steps.append((int(round(dc / abs(dc))), 0))
+
+            for sc, sr in steps:
+                nc, nr = c + sc, r + sr
+                if (nc, nr) not in occupied_set:
+                    occupied_set.discard((c, r))
+                    occupied_set.add((nc, nr))
+                    final_cells[tk] = (nc, nr)
+                    moved = True
+                    break
+
+        if not moved:
+            logger.info(f"  중심 압축 수렴: {iteration + 1}회")
             break
 
-    elapsed("6. 4방향 중력 압축")
+    elapsed("6. 중심으로 당기기")
 
     # 10. 결과 구성
     tracks = []
