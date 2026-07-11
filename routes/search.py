@@ -131,7 +131,7 @@ async def find_similar_tracks(request: RecommendRequest):
         rows = await pool.fetch(
             """
             WITH query_track AS (
-                SELECT projected_embedding
+                SELECT embedding
                 FROM track_embeddings
                 WHERE track_key = $1
                 LIMIT 1
@@ -144,11 +144,11 @@ async def find_similar_tracks(request: RecommendRequest):
                 t.album::text,
                 t.playlist_count,
                 t.cover_image_url::text,
-                (1 - (t.projected_embedding <=> q.projected_embedding))::float AS similarity
+                (1 - (t.embedding <=> q.embedding))::float AS similarity
             FROM track_embeddings t, query_track q
             WHERE t.track_key != $1
-              AND t.projected_embedding IS NOT NULL
-            ORDER BY t.projected_embedding <=> q.projected_embedding
+              AND t.embedding IS NOT NULL
+            ORDER BY t.embedding <=> q.embedding
             LIMIT $2
             """,
             request.track_key,
