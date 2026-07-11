@@ -239,28 +239,35 @@ async def music_map(request: MusicMapRequest):
 
     elapsed("5. 빈 행·열 압축")
 
-    # 8. 테트리스 중력: 각 열마다 위에서부터 트랙을 아래로 떨어뜨림
-    # col별로 트랙을 row 오름차순으로 모은 뒤, row=0부터 빈틈 없이 재배치
-    col_to_tracks = defaultdict(list)
-    for tk, (c, r) in final_cells.items():
-        col_to_tracks[c].append((r, tk))
+    # 8. 4방향 중력 압축: 상하좌우 반복으로 사각형에 가깝게 뭉침
+    def compress_direction(cells: dict, axis: int, reverse: bool) -> dict:
+        """한 방향으로 트랙을 밀어 빈틈 제거. axis=0: col방향, axis=1: row방향"""
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for tk, pos in cells.items():
+            key = pos[1 - axis]  # 고정 축
+            groups[key].append((pos[axis], tk))
+        result = {}
+        for key, items in groups.items():
+            items.sort(reverse=reverse)
+            for new_idx, (_, tk) in enumerate(items):
+                idx = (len(items) - 1 - new_idx) if reverse else new_idx
+                if axis == 0:
+                    result[tk] = (idx, key)
+                else:
+                    result[tk] = (key, idx)
+        return result
 
-    final_cells = {}
-    for c, items in col_to_tracks.items():
-        items.sort()  # row 오름차순
-        for new_r, (_, tk) in enumerate(items):
-            final_cells[tk] = (c, new_r)
+    for _ in range(5):  # 수렴할 때까지 반복
+        prev = dict(final_cells)
+        final_cells = compress_direction(final_cells, axis=1, reverse=False)  # 위로
+        final_cells = compress_direction(final_cells, axis=0, reverse=False)  # 왼쪽으로
+        final_cells = compress_direction(final_cells, axis=1, reverse=True)   # 아래로
+        final_cells = compress_direction(final_cells, axis=0, reverse=True)   # 오른쪽으로
+        if final_cells == prev:
+            break
 
-    elapsed("6. 테트리스 중력")
-
-    # 9. 중력 후 다시 빈 행 압축 (중력으로 행 밀도가 달라지면 불필요한 빈 행 제거)
-    used_rows2 = sorted(set(r for c, r in final_cells.values()))
-    row_remap2 = {r: i for i, r in enumerate(used_rows2)}
-    for tk in final_cells:
-        c, r = final_cells[tk]
-        final_cells[tk] = (c, row_remap2[r])
-
-    elapsed("7. 중력 후 빈 행 압축")
+    elapsed("6. 4방향 중력 압축")
 
     # 10. 결과 구성
     tracks = []
