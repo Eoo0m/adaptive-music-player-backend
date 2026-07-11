@@ -2,6 +2,7 @@ import asyncio
 import json as json_module
 import logging
 import math
+import time
 from collections import defaultdict
 from itertools import combinations
 
@@ -58,6 +59,10 @@ async def music_map(request: MusicMapRequest):
     if len(request.track_keys) > 30:
         raise HTTPException(status_code=400, detail="트랙은 최대 30개까지 입력 가능합니다")
 
+    t0 = time.perf_counter()
+    def elapsed(label: str):
+        logger.info(f"  [{label}] {(time.perf_counter() - t0) * 1000:.0f}ms")
+
     pool = await get_db_pool()
 
     # 1. seed 트랙 조회
@@ -74,6 +79,7 @@ async def music_map(request: MusicMapRequest):
 
     if not seed_rows:
         raise HTTPException(status_code=404, detail="트랙을 찾을 수 없습니다")
+    elapsed("1. seed 조회")
 
     seed_keys_found = [r["track_key"] for r in seed_rows]
     seed_set = set(seed_keys_found)
@@ -123,6 +129,7 @@ async def music_map(request: MusicMapRequest):
                 seen.add(tk)
                 fill_rows_map[seed_key].append(r)
                 fill_source_seed[tk] = seed_key
+    elapsed("2. fill 조회")
 
     seed_meta_map = {r["track_key"]: {"title": r["title"], "artist": r["artist"]} for r in seed_rows}
 
@@ -159,6 +166,7 @@ async def music_map(request: MusicMapRequest):
             lo, hi = coords[:, dim].min(), coords[:, dim].max()
             coords[:, dim] = (coords[:, dim] - lo) / (hi - lo + 1e-8)
         seed_umap = {k: coords[i] for i, k in enumerate(seed_keys_ordered)}
+    elapsed("3. UMAP/MDS")
 
     # 4. K-Means 클러스터링
     # 시드 수에 따라 k 결정: 시드 3개당 1클러스터, 최대 4
@@ -183,6 +191,8 @@ async def music_map(request: MusicMapRequest):
     for c, cseeds in cluster_seeds.items():
         cluster_center_umap[c] = np.mean([seed_umap[sk] for sk in cseeds], axis=0)
         cluster_center_emb[c] = np.mean([seed_embs[sk] for sk in cseeds], axis=0)
+
+    elapsed("4. K-Means")
 
     # seed → cluster 맵
     seed_to_cluster = {sk: cluster_labels[i] for i, sk in enumerate(seed_keys_ordered)}
@@ -297,6 +307,8 @@ async def music_map(request: MusicMapRequest):
             cell_map[tk] = (gcol, grow)
             occupied.add((gcol, grow))
 
+    elapsed("5. 블록 격자 배치")
+
     # 8. bridge: 먼 클러스터 쌍에 대해 중간 임베딩으로 트랙 조회
     BRIDGE_DIST_THRESHOLD = 0.35  # 클러스터 중심 UMAP 거리 > 0.35인 쌍만 bridge
     bridge_rows_all = []
@@ -345,6 +357,8 @@ async def music_map(request: MusicMapRequest):
                         "sim_b": round(sim_b, 3),
                     }
 
+    elapsed("6. bridge 조회")
+
     # 9. bridge 트랙을 두 클러스터 경계 근처 빈 셀에 배치
     for tk, bm in bridge_meta.items():
         ca, cb = bm["cluster_a"], bm["cluster_b"]
@@ -386,6 +400,8 @@ async def music_map(request: MusicMapRequest):
             max_row_used = max(p[1] for p in occupied)
             cell_map[tk] = (max_col_used, 0)
             occupied.add((max_col_used, 0))
+
+    elapsed("7. bridge 셀 배치")
 
     # 10. 전체 트랙 메타 구성
     all_fill_rows = []
