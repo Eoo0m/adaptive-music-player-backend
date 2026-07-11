@@ -19,7 +19,6 @@ class MusicMapRequest(BaseModel):
     track_keys: List[str]
     favorite_keys: Optional[List[str]] = []
     fill_per_seed: Optional[int] = 10
-    bridge_per_pair: Optional[int] = 8
 
 
 @router.get("/top-tracks")
@@ -43,10 +42,9 @@ async def top_tracks(limit: int = 10):
 @router.post("/music-map")
 async def music_map(request: MusicMapRequest):
     """
-    1. 전체 트랙(seed + fill) UMAP 2D
-    2. 좌표를 격자 셀에 스냅
-    3. 겹치는 셀만 가까운 빈칸으로 이동
-    4. 빈 행·열 삭제해서 전체 압축
+    1. 시드만 UMAP → 격자 셀 확정
+    2. 필은 소속 시드 셀 주변 BFS로 빈 칸 배치
+    3. 중심으로 당기기로 뭉치기
     """
     if len(request.track_keys) < 1:
         raise HTTPException(status_code=400, detail="트랙을 1개 이상 입력해주세요")
@@ -83,6 +81,7 @@ async def music_map(request: MusicMapRequest):
         r["track_key"]: np.array(json_module.loads(r["embedding"]), dtype=np.float32)
         for r in seed_rows
     }
+    row_map = {r["track_key"]: r for r in seed_rows}
 
     async def fetch_near_raw(emb: np.ndarray, limit: int, exclude: list):
         return await pool.fetch(
@@ -110,16 +109,17 @@ async def music_map(request: MusicMapRequest):
     ])
 
     seen = set(seed_set)
-    fill_source_seed = {}
-    fill_rows_all = []
+    fill_source_seed = {}  # track_key → seed_key
+    fill_by_seed = defaultdict(list)  # seed_key → [row, ...]
 
     for seed_key, rows in zip(seed_keys_found, seed_fill_results):
         for r in rows:
             tk = r["track_key"]
             if tk not in seen:
                 seen.add(tk)
-                fill_rows_all.append(r)
+                fill_by_seed[seed_key].append(r)
                 fill_source_seed[tk] = seed_key
+                row_map[tk] = r
 
     elapsed("2. fill 조회")
 
@@ -128,81 +128,70 @@ async def music_map(request: MusicMapRequest):
         for r in seed_rows
     }
 
-    # 3. 전체 트랙 임베딩 수집 (seed + fill)
-    all_rows = list(seed_rows) + fill_rows_all
-    all_keys = []
-    all_embs = []
-    row_map = {}
-
-    for row in all_rows:
-        tk = row["track_key"]
-        emb_str = row["embedding"]
-        if not emb_str:
-            continue
-        all_keys.append(tk)
-        all_embs.append(np.array(json_module.loads(emb_str), dtype=np.float32))
-        row_map[tk] = row
-
-    if len(all_embs) < 2:
-        raise HTTPException(status_code=500, detail="임베딩 데이터가 부족합니다")
-
-    embs_arr = np.array(all_embs, dtype=np.float32)
-    n_total = len(all_keys)
-
-    # 4. UMAP 2D (전체 트랙)
+    # 3. 시드만 UMAP
     try:
         import umap as umap_module
     except ImportError:
         raise HTTPException(status_code=500, detail="umap-learn 패키지가 필요합니다")
 
-    n_neighbors = min(15, n_total - 1)
-    reducer = umap_module.UMAP(
-        n_components=2,
-        n_neighbors=n_neighbors,
-        min_dist=0.1,
-        metric="cosine",
-        random_state=42,
-        low_memory=True,
-        n_epochs=200,
-    )
-    coords = reducer.fit_transform(embs_arr)  # (n_total, 2)
-    elapsed("3. UMAP")
+    n_seeds = len(seed_keys_found)
+    seed_embs_arr = np.array([seed_embs[k] for k in seed_keys_found], dtype=np.float32)
 
-    # 5. 격자 셀에 스냅
-    # 전체를 GRID_SIZE x GRID_SIZE 격자로 스냅
-    GRID_SIZE = max(10, int(np.ceil(np.sqrt(n_total) * 1.5)))
+    if n_seeds == 1:
+        seed_coords = {seed_keys_found[0]: (0, 0)}
+    elif n_seeds <= 3:
+        from sklearn.manifold import MDS
+        seed_n = seed_embs_arr / (np.linalg.norm(seed_embs_arr, axis=1, keepdims=True) + 1e-8)
+        cos_dist = np.clip(1.0 - seed_n @ seed_n.T, 0, 2).astype(np.float64)
+        mds = MDS(n_components=2, dissimilarity="precomputed", random_state=42, normalized_stress=False)
+        coords = mds.fit_transform(cos_dist)
+        for dim in range(2):
+            lo, hi = coords[:, dim].min(), coords[:, dim].max()
+            coords[:, dim] = (coords[:, dim] - lo) / (hi - lo + 1e-8)
+        seed_coords = {k: coords[i] for i, k in enumerate(seed_keys_found)}
+    else:
+        n_neighbors = min(15, n_seeds - 1)
+        reducer = umap_module.UMAP(
+            n_components=2, n_neighbors=n_neighbors, min_dist=0.3,
+            metric="cosine", random_state=42, low_memory=True, n_epochs=200,
+        )
+        coords = reducer.fit_transform(seed_embs_arr)
+        for dim in range(2):
+            lo, hi = coords[:, dim].min(), coords[:, dim].max()
+            coords[:, dim] = (coords[:, dim] - lo) / (hi - lo + 1e-8)
+        seed_coords = {k: coords[i] for i, k in enumerate(seed_keys_found)}
 
-    for dim in range(2):
-        lo, hi = coords[:, dim].min(), coords[:, dim].max()
-        coords[:, dim] = (coords[:, dim] - lo) / (hi - lo + 1e-8) * (GRID_SIZE - 1)
+    elapsed("3. UMAP (시드만)")
 
-    raw_cells = [(int(round(coords[i, 0])), int(round(coords[i, 1]))) for i in range(n_total)]
+    # 4. 시드 UMAP 좌표 → 격자 스냅
+    # 시드 간 간격을 fill 수에 비례해 여유있게 확보
+    max_fills = max((len(fill_by_seed[sk]) for sk in seed_keys_found), default=0)
+    seed_spacing = max(3, int(np.ceil(np.sqrt(max_fills + 1))) + 1)
+    GRID_SIZE = seed_spacing * max(int(np.ceil(np.sqrt(n_seeds) * 2)), 2)
 
-    # 6. 겹치는 셀만 가까운 빈칸으로 이동 (BFS)
-    occupied = {}  # (col, row) → track_key
+    occupied = {}   # (col, row) → track_key
     final_cells = {}  # track_key → (col, row)
 
-    # seed 먼저 배치 (우선순위)
-    order = (
-        [i for i, tk in enumerate(all_keys) if tk in seed_set] +
-        [i for i, tk in enumerate(all_keys) if tk not in seed_set]
-    )
+    # 시드 배치 (UMAP 좌표 → 격자, 충돌 시 BFS)
+    raw_seed_cells = {}
+    for sk in seed_keys_found:
+        ux, uy = seed_coords[sk]
+        c = int(round(ux * (GRID_SIZE - 1)))
+        r = int(round(uy * (GRID_SIZE - 1)))
+        raw_seed_cells[sk] = (c, r)
 
-    for i in order:
-        tk = all_keys[i]
-        c, r = raw_cells[i]
-
+    for sk in seed_keys_found:
+        c, r = raw_seed_cells[sk]
         if (c, r) not in occupied:
-            occupied[(c, r)] = tk
-            final_cells[tk] = (c, r)
+            occupied[(c, r)] = sk
+            final_cells[sk] = (c, r)
         else:
-            # BFS로 가장 가까운 빈 셀 탐색
+            # BFS로 가장 가까운 빈 셀
             found = None
-            visited = set()
+            visited = {(c, r)}
             queue = [(c, r)]
-            visited.add((c, r))
-            while queue and found is None:
-                next_queue = []
+            while queue and not found:
+                next_q = []
                 for qc, qr in queue:
                     for dc, dr in [(0,1),(1,0),(0,-1),(-1,0),(1,1),(1,-1),(-1,1),(-1,-1)]:
                         nc, nr = qc + dc, qr + dr
@@ -211,45 +200,81 @@ async def music_map(request: MusicMapRequest):
                             if (nc, nr) not in occupied:
                                 found = (nc, nr)
                                 break
-                            next_queue.append((nc, nr))
+                            next_q.append((nc, nr))
                     if found:
                         break
-                queue = next_queue
+                queue = next_q
+            pos = found or (max(p[0] for p in occupied) + 1, 0)
+            occupied[pos] = sk
+            final_cells[sk] = pos
 
-            if found is None:
-                # fallback: 새 열에 추가
+    elapsed("4. 시드 격자 배치")
+
+    # 5. fill을 소속 시드 주변 BFS로 배치
+    # 시드와 유사도 높은 fill부터 배치 (가까운 셀 먼저 차지)
+    for sk in seed_keys_found:
+        sc, sr = final_cells[sk]
+        fills = fill_by_seed[sk]
+
+        # 유사도 내림차순 정렬
+        sn = seed_embs[sk] / (np.linalg.norm(seed_embs[sk]) + 1e-8)
+        def fill_sim(r):
+            emb = np.array(json_module.loads(r["embedding"]), dtype=np.float32)
+            emb_n = emb / (np.linalg.norm(emb) + 1e-8)
+            return float(np.dot(emb_n, sn))
+        fills_sorted = sorted(fills, key=fill_sim, reverse=True)
+
+        # BFS 큐: 시드 셀 인접부터 탐색
+        bfs_visited = set(occupied.keys())
+        bfs_queue = []
+        for dc, dr in [(0,1),(1,0),(0,-1),(-1,0),(1,1),(1,-1),(-1,1),(-1,-1)]:
+            nc, nr = sc + dc, sr + dr
+            if (nc, nr) not in bfs_visited:
+                bfs_queue.append((nc, nr))
+                bfs_visited.add((nc, nr))
+
+        for fill_row in fills_sorted:
+            tk = fill_row["track_key"]
+            # BFS에서 빈 셀 찾기
+            while bfs_queue:
+                pos = bfs_queue.pop(0)
+                if pos not in occupied:
+                    occupied[pos] = tk
+                    final_cells[tk] = pos
+                    # 이 셀 인접 셀을 큐에 추가
+                    for dc, dr in [(0,1),(1,0),(0,-1),(-1,0),(1,1),(1,-1),(-1,1),(-1,-1)]:
+                        np_ = (pos[0] + dc, pos[1] + dr)
+                        if np_ not in bfs_visited:
+                            bfs_visited.add(np_)
+                            bfs_queue.append(np_)
+                    break
+            else:
+                # fallback
                 max_c = max(p[0] for p in occupied) + 1
-                found = (max_c, 0)
+                occupied[(max_c, 0)] = tk
+                final_cells[tk] = (max_c, 0)
 
-            occupied[found] = tk
-            final_cells[tk] = found
+    elapsed("5. fill 시드 주변 배치")
 
-    elapsed("4. 격자 스냅 + 충돌 해결")
-
-    # 7. 빈 행·열 삭제 (압축)
+    # 6. 빈 행·열 압축
     used_cols = sorted(set(c for c, r in final_cells.values()))
     used_rows = sorted(set(r for c, r in final_cells.values()))
-
     col_remap = {c: i for i, c in enumerate(used_cols)}
     row_remap = {r: i for i, r in enumerate(used_rows)}
-
     for tk in final_cells:
         c, r = final_cells[tk]
         final_cells[tk] = (col_remap[c], row_remap[r])
 
-    elapsed("5. 빈 행·열 압축")
+    elapsed("6. 빈 행·열 압축")
 
-    # 8. 중심으로 당기기: 각 트랙을 전체 중심 방향으로 한 칸씩 당겨 원형으로 뭉침
+    # 7. 중심으로 당기기
     for iteration in range(30):
         moved = False
         occupied_set = set(final_cells.values())
-
-        # 현재 중심 계산
         all_pos = list(final_cells.values())
         cx = sum(p[0] for p in all_pos) / len(all_pos)
         cy = sum(p[1] for p in all_pos) / len(all_pos)
 
-        # 중심에서 먼 트랙부터 처리 (바깥쪽이 먼저 움직여야 안쪽이 막히지 않음)
         order = sorted(final_cells.keys(), key=lambda tk: -(
             (final_cells[tk][0] - cx) ** 2 + (final_cells[tk][1] - cy) ** 2
         ))
@@ -258,11 +283,9 @@ async def music_map(request: MusicMapRequest):
             c, r = final_cells[tk]
             dc = cx - c
             dr = cy - r
-            dist = (dc ** 2 + dr ** 2) ** 0.5
-            if dist < 0.5:
+            if (dc ** 2 + dr ** 2) ** 0.5 < 0.5:
                 continue
 
-            # 중심 방향으로 한 칸 이동 후보 (가장 중심에 가까운 방향 우선)
             steps = []
             if abs(dc) >= abs(dr):
                 steps.append((int(round(dc / abs(dc))), 0))
@@ -286,9 +309,10 @@ async def music_map(request: MusicMapRequest):
             logger.info(f"  중심 압축 수렴: {iteration + 1}회")
             break
 
-    elapsed("6. 중심으로 당기기")
+    elapsed("7. 중심으로 당기기")
 
-    # 10. 결과 구성
+    # 8. 결과 구성
+    all_keys = list(seed_keys_found) + [tk for tk in fill_source_seed]
     tracks = []
     for tk in all_keys:
         row = row_map[tk]
@@ -318,13 +342,12 @@ async def music_map(request: MusicMapRequest):
 
     elapsed("8. 결과 구성")
     logger.info(
-        f"music-map: {len(seed_rows)} seeds, {len(fill_rows_all)} fills "
-        f"→ total={len(tracks)}, grid={len(used_cols)}x{len(used_rows)}"
+        f"music-map: {n_seeds} seeds, {len(fill_source_seed)} fills → total={len(tracks)}"
     )
 
     return {
         "tracks": tracks,
-        "seed_count": len(seed_rows),
-        "fill_count": len(fill_rows_all),
+        "seed_count": n_seeds,
+        "fill_count": len(fill_source_seed),
         "total": len(tracks),
     }
