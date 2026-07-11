@@ -239,7 +239,30 @@ async def music_map(request: MusicMapRequest):
 
     elapsed("5. 빈 행·열 압축")
 
-    # 8. 결과 구성
+    # 8. 테트리스 중력: 각 열마다 위에서부터 트랙을 아래로 떨어뜨림
+    # col별로 트랙을 row 오름차순으로 모은 뒤, row=0부터 빈틈 없이 재배치
+    col_to_tracks = defaultdict(list)
+    for tk, (c, r) in final_cells.items():
+        col_to_tracks[c].append((r, tk))
+
+    final_cells = {}
+    for c, items in col_to_tracks.items():
+        items.sort()  # row 오름차순
+        for new_r, (_, tk) in enumerate(items):
+            final_cells[tk] = (c, new_r)
+
+    elapsed("6. 테트리스 중력")
+
+    # 9. 중력 후 다시 빈 행 압축 (중력으로 행 밀도가 달라지면 불필요한 빈 행 제거)
+    used_rows2 = sorted(set(r for c, r in final_cells.values()))
+    row_remap2 = {r: i for i, r in enumerate(used_rows2)}
+    for tk in final_cells:
+        c, r = final_cells[tk]
+        final_cells[tk] = (c, row_remap2[r])
+
+    elapsed("7. 중력 후 빈 행 압축")
+
+    # 10. 결과 구성
     tracks = []
     for tk in all_keys:
         row = row_map[tk]
@@ -267,7 +290,7 @@ async def music_map(request: MusicMapRequest):
             "y": float(grow),
         })
 
-    elapsed("6. 결과 구성")
+    elapsed("8. 결과 구성")
     logger.info(
         f"music-map: {len(seed_rows)} seeds, {len(fill_rows_all)} fills "
         f"→ total={len(tracks)}, grid={len(used_cols)}x{len(used_rows)}"
