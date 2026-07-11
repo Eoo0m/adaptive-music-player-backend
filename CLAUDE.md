@@ -50,13 +50,18 @@ experiments/         # HNSW recall 실험 등
 
 ## track_embeddings 임베딩 컬럼 용도
 
-| 컬럼 | 차원 | 모델 | 용도 | HNSW 인덱스 |
-|---|---|---|---|---|
-| `embedding` | 64d | 음악 유사도 모델 | 트랙 간 음악적 유사도 (find-similar-tracks, music-map) | 확인 필요 |
-| `projected_embedding` | 512d | CLIP 프로젝션 | 텍스트 키워드 → 음악 매핑 (search-by-keyword) | O (`vector_cosine_ops`) |
-| `itemtower_embedding` | 128d | Two-Tower item tower | 세션 기반 추천 (recommend) | 확인 필요 |
+| 컬럼 | 차원 | 생성 모델 | 학습 방법 | 용도 | HNSW 인덱스 |
+|---|---|---|---|---|---|
+| `embedding` | 64d | SimGCL | 플레이리스트-트랙 이분 그래프 위에서 LightGCN propagation + noise augmentation + BPR loss + contrastive loss. LOO(Leave-One-Out) 평가. | 트랙 간 음악적 유사도 (find-similar-tracks, music-map) | O (`vector_cosine_ops`, m=32, ef=200) |
+| `projected_embedding` | 512d | CLIP (ProjectionMLP) | SimGCL 64d 트랙 임베딩을 텍스트 공간으로 프로젝션. 플레이리스트 캡션(GPT 생성) + 개별 태그를 OpenAI text embedding으로 변환 후 대조학습(InfoNCE). 저장수 log(saves)로 가중치. | 텍스트 키워드 → 음악 매핑 (search-by-keyword) | O (`vector_cosine_ops`) |
+| `itemtower_embedding` | 128d | Two-Tower (Item Tower MLP) | SimGCL 64d 임베딩 입력 → MLP → 128d. User Tower(Transformer)와 함께 InfoNCE in-batch negative로 학습. LOO split 사용. | 세션 기반 추천 (recommend) | 확인 필요 |
 
 **혼용 금지**: `embedding`을 키워드 검색에 쓰거나, `projected_embedding`을 유사곡 검색에 쓰면 결과가 엉뚱해짐.
+
+학습 코드 위치: `/Users/eomjoonseo/dynplayer/src/`
+- `simgcl/` — SimGCL 학습 → `embedding` 생성
+- `clip_simgcl/` — CLIP 프로젝션 학습 → `projected_embedding` 생성
+- `two_tower/` — Two-Tower 학습 → `itemtower_embedding` 생성
 
 ## Deploy
 ```bash
