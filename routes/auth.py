@@ -22,15 +22,21 @@ JWT_SECRET = os.getenv("JWT_SECRET")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24 * 7  # 7일
 
+# Spotify OAuth 설정
+SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
+SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
+SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
+
 # 프론트엔드 URL (로그인 후 리다이렉트)
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://dynplayer.win")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://caromusic.kr")
 
 
-def create_jwt_token(user_id: str, email: str) -> str:
+def create_jwt_token(user_id: str, email: str, login_type: str = "google") -> str:
     """JWT 토큰 생성"""
     payload = {
         "sub": user_id,
         "email": email,
+        "login_type": login_type,
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS),
         "iat": datetime.utcnow(),
     }
@@ -46,7 +52,7 @@ async def get_current_user(request: Request) -> dict:
     token = auth_header.split(" ")[1]
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return {"user_id": payload["sub"], "email": payload["email"]}
+        return {"user_id": payload["sub"], "email": payload["email"], "login_type": payload.get("login_type", "google")}
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
@@ -122,7 +128,7 @@ async def google_callback(code: str):
         user_id = row["id"]
 
         # 4. JWT 발급 → 프론트엔드로 리다이렉트
-        token = create_jwt_token(user_id, email)
+        token = create_jwt_token(user_id, email, login_type="google")
 
         redirect_url = f"{FRONTEND_URL}?token={token}"
         return RedirectResponse(url=redirect_url)
@@ -134,13 +140,104 @@ async def google_callback(code: str):
         raise HTTPException(status_code=500, detail="Authentication failed")
 
 
+@router.get("/spotify/login")
+async def spotify_login():
+    """Spotify OAuth 인증 페이지로 리다이렉트"""
+    params = {
+        "client_id": SPOTIFY_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": SPOTIFY_REDIRECT_URI,
+        "scope": "user-read-email user-read-private",
+    }
+    url = f"https://accounts.spotify.com/authorize?{urlencode(params)}"
+    return RedirectResponse(url=url)
+
+
+@router.get("/spotify/callback")
+async def spotify_callback(code: str):
+    """Spotify OAuth 콜백 - 토큰 교환 → 유저 생성/조회 → JWT 발급"""
+    import base64
+
+    try:
+        # 1. code로 access_token 교환
+        credentials = base64.b64encode(
+            f"{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}".encode()
+        ).decode()
+
+        async with httpx.AsyncClient() as client:
+            token_response = await client.post(
+                "https://accounts.spotify.com/api/token",
+                data={
+                    "code": code,
+                    "redirect_uri": SPOTIFY_REDIRECT_URI,
+                    "grant_type": "authorization_code",
+                },
+                headers={
+                    "Authorization": f"Basic {credentials}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            )
+            token_data = token_response.json()
+
+        if "access_token" not in token_data:
+            logger.error(f"Spotify token exchange failed: {token_data}")
+            raise HTTPException(status_code=400, detail="Spotify authentication failed")
+
+        # 2. access_token으로 유저 정보 가져오기
+        async with httpx.AsyncClient() as client:
+            user_response = await client.get(
+                "https://api.spotify.com/v1/me",
+                headers={"Authorization": f"Bearer {token_data['access_token']}"},
+            )
+            spotify_user = user_response.json()
+
+        spotify_id = spotify_user["id"]
+        email = spotify_user.get("email", "")
+        display_name = spotify_user.get("display_name", "") or ""
+        images = spotify_user.get("images", [])
+        profile_image_url = images[0]["url"] if images else ""
+
+        logger.info(f"Spotify login: {email} ({spotify_id})")
+
+        # 3. DB에 유저 upsert (spotify_id 기준)
+        pool = await get_db_pool()
+        row = await pool.fetchrow(
+            """
+            INSERT INTO users (spotify_id, email, display_name, profile_image_url, login_type)
+            VALUES ($1, $2, $3, $4, 'spotify')
+            ON CONFLICT (spotify_id) DO UPDATE SET
+                email = EXCLUDED.email,
+                display_name = EXCLUDED.display_name,
+                profile_image_url = EXCLUDED.profile_image_url,
+                login_type = 'spotify',
+                updated_at = NOW()
+            RETURNING id::text
+            """,
+            spotify_id, email, display_name, profile_image_url
+        )
+
+        user_id = row["id"]
+
+        # 4. JWT 발급 → 프론트엔드로 리다이렉트
+        token = create_jwt_token(user_id, email, login_type="spotify")
+
+        redirect_url = f"{FRONTEND_URL}?token={token}"
+        return RedirectResponse(url=redirect_url)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Spotify OAuth error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Authentication failed")
+
+
 @router.get("/me")
 async def get_me(user: dict = Depends(get_current_user)):
     """현재 로그인 유저 정보 조회"""
     pool = await get_db_pool()
     row = await pool.fetchrow(
         """
-        SELECT id::text, google_id, email, display_name, profile_image_url, created_at
+        SELECT id::text, google_id, email, display_name, profile_image_url, login_type, created_at
         FROM users
         WHERE id = $1::uuid
         """,
@@ -155,5 +252,6 @@ async def get_me(user: dict = Depends(get_current_user)):
         "email": row["email"],
         "display_name": row["display_name"],
         "profile_image_url": row["profile_image_url"],
+        "login_type": row["login_type"] or "google",
         "created_at": row["created_at"].isoformat(),
     }

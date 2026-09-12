@@ -253,9 +253,9 @@ async def log_requests(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://dynplayer.win",
-        "https://www.dynplayer.win",
-        "https://api.dynplayer.win",
+        "https://caromusic.kr",
+        "https://www.caromusic.kr",
+        "https://api.caromusic.kr",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "null",  # file:// 로컬 HTML 직접 열기
