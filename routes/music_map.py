@@ -1,4 +1,3 @@
-import asyncio
 import json as json_module
 import logging
 import time
@@ -83,43 +82,51 @@ async def music_map(request: MusicMapRequest):
     }
     row_map = {r["track_key"]: r for r in seed_rows}
 
-    async def fetch_near_raw(emb: np.ndarray, limit: int, exclude: list):
-        return await pool.fetch(
-            """
-            SELECT track_key::text, title::text, artist::text, album::text,
-                   cover_image_url::text, playlist_count, embedding::text
-            FROM track_embeddings
-            WHERE track_key != ALL($1::text[])
-              AND embedding IS NOT NULL
-            ORDER BY embedding <=> $2::vector
-            LIMIT $3
-            """,
-            exclude,
-            str(emb.tolist()),
-            limit,
-        )
-
-    # 2. seed별 fill 병렬 조회
+    # 2. seed별 fill LATERAL 단일 쿼리
     fill_per_seed = max(request.fill_per_seed, 5)
     exclude_base = list(seed_set)
 
-    seed_fill_results = await asyncio.gather(*[
-        fetch_near_raw(seed_embs[key], fill_per_seed, exclude_base)
-        for key in seed_keys_found
-    ])
+    # seed 벡터 배열을 PostgreSQL unnest로 전달
+    seed_emb_strs = [str(seed_embs[k].tolist()) for k in seed_keys_found]
+
+    fill_rows = await pool.fetch(
+        """
+        WITH seeds(seed_key, seed_emb) AS (
+            SELECT s.seed_key, s.seed_emb::vector
+            FROM unnest($1::text[], $2::text[]) AS s(seed_key, seed_emb)
+        )
+        SELECT DISTINCT ON (seeds.seed_key, t.track_key)
+               seeds.seed_key::text,
+               t.track_key::text, t.title::text, t.artist::text, t.album::text,
+               t.cover_image_url::text, t.playlist_count
+        FROM seeds
+        CROSS JOIN LATERAL (
+            SELECT track_key, title, artist, album, cover_image_url, playlist_count
+            FROM track_embeddings
+            WHERE track_key != ALL($3::text[])
+              AND embedding IS NOT NULL
+            ORDER BY embedding <=> seeds.seed_emb
+            LIMIT $4
+        ) t
+        """,
+        seed_keys_found,
+        seed_emb_strs,
+        exclude_base,
+        fill_per_seed,
+    )
 
     seen = set(seed_set)
     fill_source_seed = {}  # track_key → seed_key
     fill_by_seed = defaultdict(list)  # seed_key → [row, ...]
 
-    for seed_key, rows in zip(seed_keys_found, seed_fill_results):
-        for r in rows:
-            tk = r["track_key"]
-            if tk not in seen:
-                seen.add(tk)
-                fill_by_seed[seed_key].append(r)
-                fill_source_seed[tk] = seed_key
-                row_map[tk] = r
+    for r in fill_rows:
+        tk = r["track_key"]
+        sk = r["seed_key"]
+        if tk not in seen:
+            seen.add(tk)
+            fill_by_seed[sk].append(r)
+            fill_source_seed[tk] = sk
+            row_map[tk] = r
 
     elapsed("2. fill 조회")
 
@@ -201,13 +208,8 @@ async def music_map(request: MusicMapRequest):
         sc, sr = final_cells[sk]
         fills = fill_by_seed[sk]
 
-        # 유사도 내림차순 정렬
-        sn = seed_embs[sk] / (np.linalg.norm(seed_embs[sk]) + 1e-8)
-        def fill_sim(r):
-            emb = np.array(json_module.loads(r["embedding"]), dtype=np.float32)
-            emb_n = emb / (np.linalg.norm(emb) + 1e-8)
-            return float(np.dot(emb_n, sn))
-        fills_sorted = sorted(fills, key=fill_sim, reverse=True)
+        # DB에서 이미 유사도 순으로 반환됨
+        fills_sorted = fills
 
         # BFS 큐: 시드 셀 인접부터 탐색
         bfs_visited = set(occupied.keys())
