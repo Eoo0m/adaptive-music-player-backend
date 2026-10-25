@@ -108,6 +108,7 @@ async def recommend(request: RecommendAverageRequest):
                 t.album::text,
                 t.playlist_count,
                 t.cover_image_url::text,
+                t.apple_music_id::text,
                 (1 - (t.itemtower_embedding <=> $1::vector))::float AS similarity
             FROM track_embeddings t
             WHERE t.itemtower_embedding IS NOT NULL
@@ -150,6 +151,7 @@ async def recommend(request: RecommendAverageRequest):
                 "playlist_count": item["playlist_count"],
                 "similarity": item.get("similarity", 0),
                 "cover_image_url": item.get("cover_image_url"),
+                "apple_music_id": item.get("apple_music_id"),
             })
 
         logger.info(

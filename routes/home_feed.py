@@ -19,7 +19,7 @@ async def home_feed(user: dict = Depends(get_current_user)):
     fav_rows = await pool.fetch(
         """
         SELECT f.track_key, t.title::text, t.artist::text, t.album::text,
-               t.cover_image_url::text, t.playlist_count
+               t.cover_image_url::text, t.apple_music_id::text, t.playlist_count
         FROM user_favorites f
         JOIN track_embeddings t ON f.track_key = t.track_key
         WHERE f.user_id = $1::uuid
@@ -51,6 +51,7 @@ async def home_feed(user: dict = Depends(get_current_user)):
                 t.artist::text,
                 t.album::text,
                 t.cover_image_url::text,
+                t.apple_music_id::text,
                 t.playlist_count,
                 (1 - (t.embedding <=> q.embedding))::float AS similarity
             FROM track_embeddings t, query_track q
@@ -69,6 +70,7 @@ async def home_feed(user: dict = Depends(get_current_user)):
                 "artist": seed["artist"],
                 "album": seed["album"],
                 "cover_image_url": seed["cover_image_url"],
+                "apple_music_id": seed["apple_music_id"],
                 "playlist_count": seed["playlist_count"],
             },
             "similar": [
@@ -78,6 +80,7 @@ async def home_feed(user: dict = Depends(get_current_user)):
                     "artist": r["artist"],
                     "album": r["album"],
                     "cover_image_url": r["cover_image_url"],
+                    "apple_music_id": r["apple_music_id"],
                     "playlist_count": r["playlist_count"],
                     "similarity": r["similarity"],
                 }

@@ -27,6 +27,7 @@ async def get_favorites(user: dict = Depends(get_current_user)):
             t.artist::text,
             t.album::text,
             t.cover_image_url::text,
+            t.apple_music_id::text,
             t.playlist_count
         FROM user_favorites f
         JOIN track_embeddings t ON f.track_key = t.track_key
@@ -44,6 +45,7 @@ async def get_favorites(user: dict = Depends(get_current_user)):
                 "artist": row["artist"],
                 "album": row["album"],
                 "cover_image_url": row["cover_image_url"],
+                "apple_music_id": row["apple_music_id"],
                 "playlist_count": row["playlist_count"],
                 "added_at": row["created_at"].isoformat(),
             }

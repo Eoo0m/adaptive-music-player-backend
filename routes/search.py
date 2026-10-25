@@ -54,6 +54,7 @@ async def search_tracks_by_title_raw(query_text: str, match_count: int = 10):
             album::text,
             playlist_count,
             cover_image_url::text,
+            apple_music_id::text,
             similarity(lower(title || ' ' || artist), lower($1))::float AS similarity
         FROM track_embeddings
         WHERE lower(title || ' ' || artist) % lower($1)
@@ -102,6 +103,7 @@ async def search_songs(request: SearchRequest):
                 "playlist_count": item["playlist_count"],
                 "similarity": item.get("similarity", 0),
                 "cover_image_url": item.get("cover_image_url"),
+                "apple_music_id": item.get("apple_music_id"),
             })
 
         logger.info(f"Search: found {len(results)} tracks for '{request.query}'")
@@ -146,6 +148,7 @@ async def find_similar_tracks(request: RecommendRequest):
                 album::text,
                 playlist_count,
                 cover_image_url::text,
+                apple_music_id::text,
                 (1 - (embedding <=> $2::vector))::float AS similarity
             FROM track_embeddings
             WHERE track_key != $1
@@ -178,6 +181,7 @@ async def find_similar_tracks(request: RecommendRequest):
                 "playlist_count": item["playlist_count"],
                 "similarity": item.get("similarity", 0),
                 "cover_image_url": item.get("cover_image_url"),
+                "apple_music_id": item.get("apple_music_id"),
             })
 
         # 랜덤하게 선택
@@ -255,6 +259,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
                 t.album::text,
                 t.playlist_count,
                 t.cover_image_url::text,
+                t.apple_music_id::text,
                 t.projected_embedding::text
             FROM track_embeddings t
             WHERE t.projected_embedding IS NOT NULL
@@ -292,6 +297,7 @@ async def search_by_keyword(request: KeywordSearchRequest):
                     "album": row["album"],
                     "playlist_count": row["playlist_count"],
                     "cover_image_url": row["cover_image_url"],
+                    "apple_music_id": row["apple_music_id"],
                 }
 
         candidate_embs = np.array(candidate_embs)
