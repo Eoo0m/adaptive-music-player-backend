@@ -422,3 +422,76 @@ async def apple_callback(request: Request):
     except Exception as e:
         logger.error(f"Apple OAuth error: {str(e)}")
         raise HTTPException(status_code=500, detail="Authentication failed")
+
+
+# ── Sign in with Apple (Mobile) ───────────────────────────────────────────────
+
+from pydantic import BaseModel as _BaseModel
+
+class AppleMobileLoginRequest(_BaseModel):
+    identity_token: str
+    full_name: str | None = None  # 최초 로그인 시에만 전달
+
+
+@router.post("/apple/mobile")
+async def apple_mobile_login(body: AppleMobileLoginRequest):
+    """모바일 앱용 Sign in with Apple — identityToken JSON으로 직접 수신"""
+    try:
+        id_token = body.identity_token
+
+        # 1. id_token 검증 (Apple 공개키로)
+        async with httpx.AsyncClient() as client:
+            jwks_resp = await client.get("https://appleid.apple.com/auth/oauth2/v2/keys")
+            jwks = jwks_resp.json()
+
+        header = jwt.get_unverified_header(id_token)
+        apple_public_key = next(
+            (k for k in jwks["keys"] if k["kid"] == header["kid"]), None
+        )
+        if not apple_public_key:
+            raise HTTPException(status_code=400, detail="Apple public key not found")
+
+        claims = jwt.decode(
+            id_token,
+            apple_public_key,
+            algorithms=["RS256"],
+            audience=APPLE_SERVICES_ID,
+        )
+
+        apple_id = claims["sub"]
+        email = claims.get("email", "")
+
+        logger.info(f"Apple mobile login: {email} ({apple_id})")
+
+        # 2. DB upsert
+        pool = await get_db_pool()
+        row = await pool.fetchrow(
+            """
+            INSERT INTO users (apple_id, email, display_name, login_type)
+            VALUES ($1, $2, $3, 'apple')
+            ON CONFLICT (apple_id) DO UPDATE SET
+                email = COALESCE(NULLIF(EXCLUDED.email, ''), users.email),
+                display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), users.display_name),
+                login_type = 'apple',
+                updated_at = NOW()
+            RETURNING id::text, display_name
+            """,
+            apple_id, email, body.full_name or ""
+        )
+        user_id = row["id"]
+
+        if body.full_name:
+            await pool.execute(
+                "UPDATE users SET apple_name = $1 WHERE id = $2::uuid AND apple_name IS NULL",
+                body.full_name, user_id
+            )
+
+        # 3. JWT 반환 (모바일은 리다이렉트 없이 JSON)
+        token = create_jwt_token(user_id, email, login_type="apple")
+        return {"token": token, "user_id": user_id, "email": email}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Apple mobile login error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Authentication failed")
