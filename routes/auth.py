@@ -1,11 +1,16 @@
 import os
 import logging
+import time
+import json
 from urllib.parse import urlencode
+from functools import lru_cache
 
 import httpx
 from fastapi import APIRouter, HTTPException, Depends, Request
-from fastapi.responses import RedirectResponse
-from jose import jwt, JWTError
+from fastapi.responses import RedirectResponse, JSONResponse
+from jose import jwt, JWTError, jwk
+from jose.utils import base64url_decode
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from datetime import datetime, timedelta
 
 from database import get_db_pool
@@ -26,6 +31,15 @@ JWT_EXPIRE_HOURS = 24 * 7  # 7일
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
+
+# Apple 설정
+APPLE_TEAM_ID = os.getenv("APPLE_TEAM_ID")
+APPLE_MUSICKIT_KEY_ID = os.getenv("APPLE_MUSICKIT_KEY_ID")
+APPLE_MUSICKIT_KEY_PATH = os.getenv("APPLE_MUSICKIT_KEY_PATH")
+APPLE_SIWA_KEY_ID = os.getenv("APPLE_SIWA_KEY_ID")
+APPLE_SIWA_KEY_PATH = os.getenv("APPLE_SIWA_KEY_PATH")
+APPLE_SERVICES_ID = os.getenv("APPLE_SERVICES_ID")
+APPLE_REDIRECT_URI = os.getenv("APPLE_REDIRECT_URI")
 
 # 프론트엔드 URL (로그인 후 리다이렉트)
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://caromusic.kr")
@@ -255,3 +269,156 @@ async def get_me(user: dict = Depends(get_current_user)):
         "login_type": row["login_type"] or "google",
         "created_at": row["created_at"].isoformat(),
     }
+
+
+# ── Apple Music Developer Token ──────────────────────────────────────────────
+
+_musickit_token_cache: dict = {"token": None, "exp": 0}
+
+def _generate_musickit_token() -> str:
+    """MusicKit Developer Token 생성 (ES256 JWT, 최대 6개월)"""
+    now = int(time.time())
+    # 캐시 유효하면 재사용
+    if _musickit_token_cache["token"] and _musickit_token_cache["exp"] > now + 60:
+        return _musickit_token_cache["token"]
+
+    with open(APPLE_MUSICKIT_KEY_PATH, "rb") as f:
+        private_key = f.read()
+
+    payload = {
+        "iss": APPLE_TEAM_ID,
+        "iat": now,
+        "exp": now + 15777000,  # 6개월
+    }
+    headers = {"alg": "ES256", "kid": APPLE_MUSICKIT_KEY_ID}
+    token = jwt.encode(payload, private_key, algorithm="ES256", headers=headers)
+
+    _musickit_token_cache["token"] = token
+    _musickit_token_cache["exp"] = now + 15777000
+    return token
+
+
+@router.get("/apple-music/token")
+async def get_musickit_token():
+    """MusicKit JS 초기화에 필요한 Developer Token 반환"""
+    try:
+        token = _generate_musickit_token()
+        return {"token": token}
+    except Exception as e:
+        logger.error(f"MusicKit token generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate MusicKit token")
+
+
+# ── Sign in with Apple ────────────────────────────────────────────────────────
+
+def _generate_siwa_client_secret() -> str:
+    """Sign in with Apple Client Secret JWT 생성 (유효기간 6개월)"""
+    now = int(time.time())
+    with open(APPLE_SIWA_KEY_PATH, "rb") as f:
+        private_key = f.read()
+
+    payload = {
+        "iss": APPLE_TEAM_ID,
+        "iat": now,
+        "exp": now + 15777000,
+        "aud": "https://appleid.apple.com",
+        "sub": APPLE_SERVICES_ID,
+    }
+    headers = {"alg": "ES256", "kid": APPLE_SIWA_KEY_ID}
+    return jwt.encode(payload, private_key, algorithm="ES256", headers=headers)
+
+
+@router.get("/apple/login")
+async def apple_login():
+    """Sign in with Apple 인증 페이지로 리다이렉트"""
+    params = {
+        "client_id": APPLE_SERVICES_ID,
+        "redirect_uri": APPLE_REDIRECT_URI,
+        "response_type": "code id_token",
+        "response_mode": "form_post",
+        "scope": "name email",
+    }
+    url = f"https://appleid.apple.com/auth/authorize?{urlencode(params)}"
+    return RedirectResponse(url=url)
+
+
+@router.post("/apple/callback")
+async def apple_callback(request: Request):
+    """Apple OAuth 콜백 (POST form_post)"""
+    try:
+        form = await request.form()
+        code = form.get("code")
+        id_token = form.get("id_token")
+        # 최초 로그인 시에만 user JSON이 옴
+        user_json = form.get("user")
+
+        if not code or not id_token:
+            raise HTTPException(status_code=400, detail="Missing code or id_token")
+
+        # 1. id_token 검증 (Apple 공개키로)
+        async with httpx.AsyncClient() as client:
+            jwks_resp = await client.get("https://appleid.apple.com/auth/oauth2/v2/keys")
+            jwks = jwks_resp.json()
+
+        header = jwt.get_unverified_header(id_token)
+        apple_public_key = next(
+            (k for k in jwks["keys"] if k["kid"] == header["kid"]), None
+        )
+        if not apple_public_key:
+            raise HTTPException(status_code=400, detail="Apple public key not found")
+
+        claims = jwt.decode(
+            id_token,
+            apple_public_key,
+            algorithms=["RS256"],
+            audience=APPLE_SERVICES_ID,
+        )
+
+        apple_id = claims["sub"]
+        email = claims.get("email", "")
+
+        # 2. 최초 로그인 시 이름 파싱 (이후엔 안 옴)
+        apple_name = None
+        if user_json:
+            try:
+                user_data = json.loads(user_json)
+                name = user_data.get("name", {})
+                apple_name = f"{name.get('firstName', '')} {name.get('lastName', '')}".strip()
+            except Exception:
+                pass
+
+        logger.info(f"Apple login: {email} ({apple_id})")
+
+        # 3. DB upsert
+        pool = await get_db_pool()
+        row = await pool.fetchrow(
+            """
+            INSERT INTO users (apple_id, email, display_name, login_type)
+            VALUES ($1, $2, $3, 'apple')
+            ON CONFLICT (apple_id) DO UPDATE SET
+                email = COALESCE(NULLIF(EXCLUDED.email, ''), users.email),
+                display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), users.display_name),
+                login_type = 'apple',
+                updated_at = NOW()
+            RETURNING id::text, display_name
+            """,
+            apple_id, email, apple_name or ""
+        )
+        user_id = row["id"]
+
+        # apple_name은 최초 1회만 오므로 별도 컬럼에도 저장
+        if apple_name:
+            await pool.execute(
+                "UPDATE users SET apple_name = $1 WHERE id = $2::uuid AND apple_name IS NULL",
+                apple_name, user_id
+            )
+
+        # 4. JWT 발급 → 프론트엔드로 리다이렉트
+        token = create_jwt_token(user_id, email, login_type="apple")
+        return RedirectResponse(url=f"{FRONTEND_URL}?token={token}", status_code=303)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Apple OAuth error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Authentication failed")
