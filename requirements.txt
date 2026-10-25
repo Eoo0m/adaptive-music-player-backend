@@ -18,3 +18,4 @@ tenacity==8.2.3
 torch
 asyncpg
 python-jose[cryptography]
+python-multipart
