@@ -68,6 +68,7 @@ async def fetch_keyword_candidates(keyword: str, limit: int = 100):
             t.album::text,
             t.playlist_count,
             t.cover_image_url::text,
+            t.apple_music_id::text,
             t.projected_embedding::text
         FROM track_embeddings t
         WHERE t.projected_embedding IS NOT NULL
@@ -91,6 +92,7 @@ async def fetch_keyword_candidates(keyword: str, limit: int = 100):
                 "album": row["album"],
                 "playlist_count": row["playlist_count"],
                 "cover_image_url": row["cover_image_url"],
+                "apple_music_id": row["apple_music_id"],
             })
             embeddings.append(emb)
 
@@ -115,6 +117,7 @@ async def fetch_similar_candidates(track_key: str, limit: int = 50):
             t.album::text,
             t.playlist_count,
             t.cover_image_url::text,
+            t.apple_music_id::text,
             (1 - (t.embedding <=> q.embedding))::float AS similarity
         FROM track_embeddings t, query_track q
         WHERE t.track_key != $1
@@ -135,6 +138,7 @@ async def fetch_similar_candidates(track_key: str, limit: int = 50):
             "album": row["album"],
             "playlist_count": row["playlist_count"],
             "cover_image_url": row["cover_image_url"],
+            "apple_music_id": row["apple_music_id"],
             "similarity": row["similarity"],
         })
     return candidates
@@ -239,7 +243,8 @@ def apply_mmr_with_seen_penalty(
 # ============== Pydantic Models ==============
 
 class PlaylistBuilderStartRequest(BaseModel):
-    seen_track_keys: List[str] = []  # 새로고침 시 이미 본 곡 목록
+    seen_track_keys: List[str] = []
+    keyword: str = ""  # 키워드 검색 시 해당 키워드, 트랙 검색 시 빈 문자열
 
 
 class PlaylistBuilderNextRequest(BaseModel):
@@ -275,43 +280,35 @@ async def playlist_builder_start(request: PlaylistBuilderStartRequest = Playlist
     request_id = get_request_id()
     start_ms = now_ms()
 
-    time_of_day = get_time_of_day()
-    season = get_season()
-    keyword = f"{season} {time_of_day}"
-    user_name = (user.get("display_name") or user.get("email", "").split("@")[0]) if user else "Guest"
+    keyword = request.keyword.strip()
 
     logger.info(f"[{request_id}] /playlist-builder/start keyword='{keyword}' user={user.get('user_id') if user else None}")
 
     try:
-        candidates, embs, query_emb = await fetch_keyword_candidates(keyword, limit=100)
-
-        if len(candidates) == 0:
-            raise HTTPException(status_code=500, detail="키워드 검색 결과가 없습니다.")
-
-        # MMR로 12곡 선별 (새로고침 시 seen_track_keys 패널티 적용)
-        selected = apply_mmr_with_seen_penalty(
-            query_emb, candidates, embs,
-            seen_track_keys=set(request.seen_track_keys),
-            top_k=12,
-            lambda_param=0.65,
-        )
-
-        # 키워드 풀 전체 track_key 목록
-        keyword_pool_keys = [c["track_key"] for c in candidates]
+        if keyword:
+            candidates, embs, query_emb = await fetch_keyword_candidates(keyword, limit=100)
+            if len(candidates) == 0:
+                raise HTTPException(status_code=500, detail="키워드 검색 결과가 없습니다.")
+            selected = apply_mmr_with_seen_penalty(
+                query_emb, candidates, embs,
+                seen_track_keys=set(request.seen_track_keys),
+                top_k=12,
+                lambda_param=0.65,
+            )
+            keyword_pool_keys = [c["track_key"] for c in candidates]
+        else:
+            selected = []
+            keyword_pool_keys = []
 
         logger.info(
             f"[{request_id}] /playlist-builder/start done "
-            f"total={elapsed_ms(start_ms):.1f}ms keyword='{keyword}' candidates={len(candidates)} selected={len(selected)}"
+            f"total={elapsed_ms(start_ms):.1f}ms keyword='{keyword}' candidates={len(selected)}"
         )
 
         return {
-            "time_of_day": time_of_day,
-            "season": season,
             "keyword": keyword,
-            "user_name": user_name,
-            "candidates": selected,           # 12곡 (그리드에 표시)
-            "keyword_pool_keys": keyword_pool_keys,  # 100곡 풀 (next 단계 재사용)
-            "keyword_pool_data": candidates,   # 100곡 데이터 (next에서 임베딩 재조회 대신 사용)
+            "candidates": selected,
+            "keyword_pool_keys": keyword_pool_keys,
         }
 
     except HTTPException:
@@ -351,7 +348,8 @@ async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict 
                 t.artist::text,
                 t.album::text,
                 t.playlist_count,
-                t.cover_image_url::text
+                t.cover_image_url::text,
+                t.apple_music_id::text
             FROM track_embeddings t
             WHERE t.track_key = ANY($1::text[])
             """,
@@ -365,6 +363,7 @@ async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict 
                 "album": row["album"],
                 "playlist_count": row["playlist_count"],
                 "cover_image_url": row["cover_image_url"],
+                "apple_music_id": row["apple_music_id"],
             }
             for row in keyword_rows
         }
@@ -382,6 +381,7 @@ async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict 
                     "album": s["album"],
                     "playlist_count": s["playlist_count"],
                     "cover_image_url": s["cover_image_url"],
+                    "apple_music_id": s.get("apple_music_id"),
                 })
         for key in request.keyword_track_keys:
             if key not in seen_keys and key in keyword_data:
@@ -414,17 +414,22 @@ async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict 
         selected_emb_map = await fetch_projected_embeddings([request.selected_track_key])
         track_query_emb = selected_emb_map.get(request.selected_track_key)
 
-        # 5b. 키워드 projected_embedding
-        keyword_embedding = get_openai_embedding_with_retry(request.keyword)
-        keyword_tensor = torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
-        with torch.no_grad():
-            projected_query = playlist_clip_model.caption_proj(keyword_tensor)
-            keyword_query_emb = projected_query.cpu().numpy()[0]
+        # 5b. 키워드 projected_embedding (키워드 있을 때만)
+        keyword_query_emb = None
+        if request.keyword.strip():
+            keyword_embedding = get_openai_embedding_with_retry(request.keyword)
+            keyword_tensor = torch.tensor(keyword_embedding, dtype=torch.float32).unsqueeze(0).to(device)
+            with torch.no_grad():
+                projected_query = playlist_clip_model.caption_proj(keyword_tensor)
+                keyword_query_emb = projected_query.cpu().numpy()[0]
 
-        if track_query_emb is None:
+        if track_query_emb is None and keyword_query_emb is not None:
             track_query_emb = keyword_query_emb
 
-        # 6. 선택곡 기준 MMR 6곡 + 키워드 기준 MMR 6곡 → 합산 (중복 제거)
+        if track_query_emb is None:
+            raise HTTPException(status_code=500, detail="임베딩을 가져올 수 없습니다.")
+
+        # 6. MMR
         seen_set = set(request.seen_track_keys)
 
         track_based = apply_mmr_with_seen_penalty(
@@ -432,23 +437,25 @@ async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict 
             filtered_candidates,
             filtered_embs_np,
             seen_track_keys=seen_set,
-            top_k=6,
+            top_k=6 if keyword_query_emb is not None else 12,
             lambda_param=0.65,
             seen_penalty=0.3,
         )
         track_based_keys = {c["track_key"] for c in track_based}
 
-        keyword_based = apply_mmr_with_seen_penalty(
-            keyword_query_emb,
-            filtered_candidates,
-            filtered_embs_np,
-            seen_track_keys=seen_set | track_based_keys,  # 이미 뽑힌 건 패널티
-            top_k=6,
-            lambda_param=0.65,
-            seen_penalty=0.3,
-        )
+        if keyword_query_emb is not None:
+            keyword_based = apply_mmr_with_seen_penalty(
+                keyword_query_emb,
+                filtered_candidates,
+                filtered_embs_np,
+                seen_track_keys=seen_set | track_based_keys,
+                top_k=6,
+                lambda_param=0.65,
+                seen_penalty=0.3,
+            )
+        else:
+            keyword_based = []
 
-        # 선택곡 기준 먼저, 키워드 기준 뒤에 (중복 제거)
         seen_result = set()
         selected = []
         for c in track_based + keyword_based:
@@ -463,7 +470,7 @@ async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict 
         )
 
         return {
-            "candidates": selected,  # 최대 12곡
+            "candidates": selected,
         }
 
     except HTTPException:
@@ -502,7 +509,8 @@ async def playlist_builder_finish(request: PlaylistBuilderFinishRequest, user: d
                 t.artist::text,
                 t.album::text,
                 t.playlist_count,
-                t.cover_image_url::text
+                t.cover_image_url::text,
+                t.apple_music_id::text
             FROM track_embeddings t
             WHERE t.track_key = ANY($1::text[])
             """,
@@ -523,6 +531,7 @@ async def playlist_builder_finish(request: PlaylistBuilderFinishRequest, user: d
                     "album": row["album"],
                     "playlist_count": row["playlist_count"],
                     "cover_image_url": row["cover_image_url"],
+                    "apple_music_id": row["apple_music_id"],
                 })
 
         # 각 선택한 곡에서 유사곡 15개씩 가져오기 (총 pool)
@@ -563,6 +572,7 @@ async def playlist_builder_finish(request: PlaylistBuilderFinishRequest, user: d
                 "album": s["album"],
                 "playlist_count": s["playlist_count"],
                 "cover_image_url": s["cover_image_url"],
+                "apple_music_id": s.get("apple_music_id"),
             })
 
         # 최종 12곡: 선택 6곡 + 유사 6곡
@@ -636,7 +646,7 @@ async def get_my_playlists(user: dict | None = Depends(get_optional_user)):
             track_rows = await pool.fetch(
                 """
                 SELECT track_key::text, title::text, artist::text, album::text,
-                       cover_image_url::text, playlist_count
+                       cover_image_url::text, playlist_count, apple_music_id::text
                 FROM track_embeddings
                 WHERE track_key = ANY($1::text[])
                 """,
@@ -654,6 +664,7 @@ async def get_my_playlists(user: dict | None = Depends(get_optional_user)):
                         "album": t["album"],
                         "cover_image_url": t["cover_image_url"],
                         "playlist_count": t["playlist_count"],
+                        "apple_music_id": t["apple_music_id"],
                     })
             playlists.append({
                 "id": row["id"],
