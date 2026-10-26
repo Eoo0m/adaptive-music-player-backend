@@ -11,7 +11,7 @@ from typing import Optional, List
 from database import get_db_pool
 from models import playlist_clip_model, device
 from utils import get_openai_embedding_with_retry, mmr_rerank
-from routes.auth import get_current_user
+from routes.auth import get_current_user, get_optional_user
 from telemetry import elapsed_ms, get_request_id, now_ms
 
 logger = logging.getLogger(__name__)
@@ -264,7 +264,7 @@ class PlaylistSaveRequest(BaseModel):
 # ============== API Endpoints ==============
 
 @router.post("/start")
-async def playlist_builder_start(request: PlaylistBuilderStartRequest = PlaylistBuilderStartRequest(), user: dict = Depends(get_current_user)):
+async def playlist_builder_start(request: PlaylistBuilderStartRequest = PlaylistBuilderStartRequest(), user: dict | None = Depends(get_optional_user)):
     """
     플레이리스트 빌더 시작.
     - 현재 시간대 감지 (새벽/아침/오후/밤)
@@ -278,7 +278,7 @@ async def playlist_builder_start(request: PlaylistBuilderStartRequest = Playlist
     time_of_day = get_time_of_day()
     season = get_season()
     keyword = f"{season} {time_of_day}"
-    user_name = user.get("display_name") or user.get("email", "").split("@")[0]
+    user_name = (user.get("display_name") or user.get("email", "").split("@")[0]) if user else "Guest"
 
     logger.info(f"[{request_id}] /playlist-builder/start keyword='{keyword}' user={user.get('user_id')}")
 
@@ -322,7 +322,7 @@ async def playlist_builder_start(request: PlaylistBuilderStartRequest = Playlist
 
 
 @router.post("/next")
-async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict = Depends(get_current_user)):
+async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict | None = Depends(get_optional_user)):
     """
     다음 후보 12곡 선별.
     - 선택한 곡의 유사곡 50곡 + 키워드 풀 합산

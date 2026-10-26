@@ -71,6 +71,19 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
+async def get_optional_user(request: Request) -> dict | None:
+    """인증 선택적 — 토큰 없으면 None 반환"""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return {"user_id": payload["sub"], "email": payload["email"], "login_type": payload.get("login_type", "google")}
+    except JWTError:
+        return None
+
+
 @router.get("/google/login")
 async def google_login():
     """Google OAuth 인증 페이지로 리다이렉트"""
