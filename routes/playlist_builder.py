@@ -280,7 +280,7 @@ async def playlist_builder_start(request: PlaylistBuilderStartRequest = Playlist
     keyword = f"{season} {time_of_day}"
     user_name = (user.get("display_name") or user.get("email", "").split("@")[0]) if user else "Guest"
 
-    logger.info(f"[{request_id}] /playlist-builder/start keyword='{keyword}' user={user.get('user_id')}")
+    logger.info(f"[{request_id}] /playlist-builder/start keyword='{keyword}' user={user.get('user_id') if user else None}")
 
     try:
         candidates, embs, query_emb = await fetch_keyword_candidates(keyword, limit=100)
