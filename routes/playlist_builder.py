@@ -588,11 +588,13 @@ async def playlist_builder_finish(request: PlaylistBuilderFinishRequest, user: d
 
 
 @router.post("/save")
-async def playlist_builder_save(request: PlaylistSaveRequest, user: dict = Depends(get_current_user)):
+async def playlist_builder_save(request: PlaylistSaveRequest, user: dict | None = Depends(get_optional_user)):
     """완성된 플레이리스트 DB 저장"""
     request_id = get_request_id()
+    GUEST_USER_ID = "aadfbdc3-fdf5-480f-841e-75c82e6abd09"
     if not request.name or not request.track_keys:
         raise HTTPException(status_code=400, detail="이름과 트랙 목록이 필요합니다.")
+    user_id = user["user_id"] if user else GUEST_USER_ID
     try:
         pool = await get_db_pool()
         row = await pool.fetchrow(
@@ -601,9 +603,9 @@ async def playlist_builder_save(request: PlaylistSaveRequest, user: dict = Depen
             VALUES ($1::uuid, $2, $3, NOW())
             RETURNING id, created_at
             """,
-            user["user_id"], request.name, request.track_keys
+            user_id, request.name, request.track_keys
         )
-        logger.info(f"[{request_id}] Playlist saved: id={row['id']} user={user['user_id']}")
+        logger.info(f"[{request_id}] Playlist saved: id={row['id']} user={user_id}")
         return {"success": True, "playlist_id": row["id"], "created_at": row["created_at"].isoformat()}
     except Exception as e:
         logger.error(f"[{request_id}] /playlist-builder/save error: {e}")
@@ -611,9 +613,11 @@ async def playlist_builder_save(request: PlaylistSaveRequest, user: dict = Depen
 
 
 @router.get("/my-playlists")
-async def get_my_playlists(user: dict = Depends(get_current_user)):
+async def get_my_playlists(user: dict | None = Depends(get_optional_user)):
     """저장된 플레이리스트 목록 + 트랙 전체 데이터"""
     request_id = get_request_id()
+    GUEST_USER_ID = "aadfbdc3-fdf5-480f-841e-75c82e6abd09"
+    user_id = user["user_id"] if user else GUEST_USER_ID
     try:
         pool = await get_db_pool()
         rows = await pool.fetch(
@@ -623,7 +627,7 @@ async def get_my_playlists(user: dict = Depends(get_current_user)):
             WHERE user_id = $1::uuid
             ORDER BY created_at DESC
             """,
-            user["user_id"]
+            user_id
         )
 
         playlists = []
