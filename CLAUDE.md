@@ -68,7 +68,7 @@ experiments/         # HNSW recall 실험 등
 # NCP 서버에서
 cd /opt/dynplayer && bash deploy.sh
 ```
-서버 포트: 8889, 도메인: api.dynplayer.win
+서버 포트: 8889, 도메인: api.caromusic.kr
 
 ## .env 필수 변수
 DATABASE_URL, SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY,

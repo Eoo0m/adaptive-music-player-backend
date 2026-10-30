@@ -384,7 +384,7 @@ async def apple_callback(request: Request):
             id_token,
             apple_public_key,
             algorithms=["RS256"],
-            audience="kr.caromusic.app",
+            audience=APPLE_SERVICES_ID,
         )
 
         apple_id = claims["sub"]

@@ -40,6 +40,7 @@ APPLE_BATCH_SIZE = 25  # Apple ISRC 필터 한 번에 최대 25개
 SLEEP_BETWEEN_BATCHES = 5.0   # DB Disk IO 부하 완화 (초)
 SLEEP_BETWEEN_APPLE = 0.3     # Apple API rate limit 완화
 PROGRESS_FILE = "scripts/.map_progress.json"
+DB_WRITE_EVERY = 10    # N 배치마다 DB에 한 번 씀 (50 * 10 = 500개마다)
 
 
 def generate_musickit_token() -> str:
@@ -144,128 +145,98 @@ def save_progress(offset: int):
 async def main():
     pool = await asyncpg.create_pool(DATABASE_URL, statement_cache_size=0, min_size=1, max_size=3)
     musickit_token = generate_musickit_token()
+    i = 0
 
-    rows = await pool.fetch(
-        "SELECT track_key FROM track_embeddings WHERE apple_music_id IS NULL AND track_key IS NOT NULL ORDER BY track_key"
-    )
-    track_keys = [r["track_key"] for r in rows]
-    total = len(track_keys)
+    try:
+        rows = await pool.fetch(
+            "SELECT track_key FROM track_embeddings WHERE apple_music_id IS NULL AND track_key IS NOT NULL ORDER BY track_key"
+        )
+        track_keys = [r["track_key"] for r in rows]
+        total = len(track_keys)
 
-    start_offset = load_progress()
-    logger.info(f"매핑 대상: {total}개, 시작 offset: {start_offset}")
+        start_offset = load_progress()
+        logger.info(f"매핑 대상: {total}개, 시작 offset: {start_offset}")
 
-    mapped = 0
-    failed = 0
+        mapped = 0
+        failed = 0
+        pending_updates: list[tuple[str, str, str]] = []
+        pending_isrc: list[tuple[str, str]] = []
 
-    async with httpx.AsyncClient() as client:
-        spotify_token = await get_spotify_token(client)
-        spotify_token_time = time.time()
-        musickit_token_time = time.time()
+        async with httpx.AsyncClient() as client:
+            spotify_token = await get_spotify_token(client)
+            spotify_token_time = time.time()
+            musickit_token_time = time.time()
 
-        for i in range(start_offset, total, BATCH_SIZE):
-            batch = track_keys[i:i + BATCH_SIZE]
+            for i in range(start_offset, total, BATCH_SIZE):
+                batch = track_keys[i:i + BATCH_SIZE]
+                batch_num = (i - start_offset) // BATCH_SIZE + 1
 
-            # 토큰 갱신
-            if time.time() - spotify_token_time > 3500:
-                try:
+                # 토큰 갱신
+                if time.time() - spotify_token_time > 3500:
                     spotify_token = await get_spotify_token(client)
                     spotify_token_time = time.time()
                     logger.info("Spotify 토큰 갱신")
-                except Exception as e:
-                    logger.error(f"Spotify 토큰 갱신 실패: {e}")
-                    await asyncio.sleep(10)
-                    continue
 
-            if time.time() - musickit_token_time > 3500:
-                musickit_token = generate_musickit_token()
-                musickit_token_time = time.time()
-                logger.info("MusicKit 토큰 갱신")
+                if time.time() - musickit_token_time > 3500:
+                    musickit_token = generate_musickit_token()
+                    musickit_token_time = time.time()
+                    logger.info("MusicKit 토큰 갱신")
 
-            # 1. Spotify → ISRC
-            try:
+                # 1. Spotify → ISRC
                 isrc_map = await fetch_isrcs_from_spotify(client, spotify_token, batch)
-            except RuntimeError:
-                # 토큰 만료 — 갱신 후 재시도
-                try:
-                    spotify_token = await get_spotify_token(client)
-                    spotify_token_time = time.time()
-                    isrc_map = await fetch_isrcs_from_spotify(client, spotify_token, batch)
-                except Exception as e:
-                    logger.warning(f"Spotify 배치 {i} 실패: {e}")
-                    failed += len(batch)
-                    save_progress(i)
-                    await asyncio.sleep(5)
+
+                if not isrc_map:
+                    save_progress(i + len(batch))
                     continue
-            except Exception as e:
-                logger.warning(f"Spotify 배치 {i} 실패: {e}")
-                failed += len(batch)
-                save_progress(i)
-                await asyncio.sleep(5)
-                continue
 
-            if not isrc_map:
+                # ISRC 누적
+                for tk, isrc in isrc_map.items():
+                    pending_isrc.append((isrc, tk))
+
+                # 2. ISRC → Apple Music ID
+                isrc_list = list(isrc_map.values())
+                apple_map: dict[str, str] = {}
+
+                for j in range(0, len(isrc_list), APPLE_BATCH_SIZE):
+                    isrc_chunk = isrc_list[j:j + APPLE_BATCH_SIZE]
+                    chunk_result = await fetch_apple_ids_by_isrc(client, musickit_token, isrc_chunk, "kr")
+                    if not chunk_result:
+                        chunk_result = await fetch_apple_ids_by_isrc(client, musickit_token, isrc_chunk, "us")
+                    apple_map.update(chunk_result)
+                    await asyncio.sleep(SLEEP_BETWEEN_APPLE)
+
+                # 결과 누적
+                for track_key, isrc in isrc_map.items():
+                    apple_id = apple_map.get(isrc)
+                    if apple_id:
+                        pending_updates.append((isrc, apple_id, track_key))
+                        mapped += 1
+                    else:
+                        failed += 1
+
+                # DB_WRITE_EVERY 배치마다 또는 마지막 배치에 DB 쓰기
+                is_last = (i + BATCH_SIZE >= total)
+                if batch_num % DB_WRITE_EVERY == 0 or is_last:
+                    await batch_update_isrc_only(pool, pending_isrc)
+                    await batch_update_db(pool, pending_updates)
+                    pending_isrc.clear()
+                    pending_updates.clear()
+                    logger.info(f"DB 쓰기 완료: {i + len(batch)}/{total} | 성공: {mapped} | 실패: {failed}")
+
                 save_progress(i + len(batch))
-                continue
+                logger.info(f"진행: {i + len(batch)}/{total} | 성공: {mapped} | 실패: {failed}")
 
-            # ISRC만이라도 저장
-            isrc_only = [(isrc, tk) for tk, isrc in isrc_map.items()]
-            try:
-                await batch_update_isrc_only(pool, isrc_only)
-            except Exception as e:
-                logger.warning(f"ISRC 저장 실패: {e}")
+                await asyncio.sleep(SLEEP_BETWEEN_BATCHES)
 
-            # 2. ISRC → Apple Music ID
-            isrc_list = list(isrc_map.values())
-            apple_map: dict[str, str] = {}
+        if os.path.exists(PROGRESS_FILE):
+            os.remove(PROGRESS_FILE)
+        logger.info(f"완료 — 성공: {mapped}/{total}, Apple Music 없음: {failed}")
 
-            for j in range(0, len(isrc_list), APPLE_BATCH_SIZE):
-                isrc_chunk = isrc_list[j:j + APPLE_BATCH_SIZE]
-                for storefront in ["kr", "us"]:
-                    try:
-                        chunk_result = await fetch_apple_ids_by_isrc(client, musickit_token, isrc_chunk, storefront)
-                        apple_map.update(chunk_result)
-                        break
-                    except RuntimeError as e:
-                        if "rate limit" in str(e):
-                            logger.warning("Apple rate limit — 30초 대기")
-                            await asyncio.sleep(30)
-                        elif storefront == "us":
-                            logger.warning(f"Apple fetch 실패 (kr+us): {e}")
-                    except Exception as e:
-                        if storefront == "us":
-                            logger.warning(f"Apple fetch 실패: {e}")
-                await asyncio.sleep(SLEEP_BETWEEN_APPLE)
-
-            # 3. DB 배치 UPDATE
-            updates = []
-            for track_key, isrc in isrc_map.items():
-                apple_id = apple_map.get(isrc)
-                if apple_id:
-                    updates.append((isrc, apple_id, track_key))
-                    mapped += 1
-                else:
-                    failed += 1
-
-            try:
-                await batch_update_db(pool, updates)
-            except Exception as e:
-                logger.error(f"DB 업데이트 실패: {e} — 10초 후 재시도")
-                await asyncio.sleep(10)
-                try:
-                    await batch_update_db(pool, updates)
-                except Exception as e2:
-                    logger.error(f"DB 업데이트 재시도 실패: {e2}")
-
-            save_progress(i + len(batch))
-            logger.info(f"진행: {i + len(batch)}/{total} | 성공: {mapped} | 실패: {failed}")
-
-            # Disk IO 부하 완화
-            await asyncio.sleep(SLEEP_BETWEEN_BATCHES)
-
-    await pool.close()
-    if os.path.exists(PROGRESS_FILE):
-        os.remove(PROGRESS_FILE)
-    logger.info(f"완료 — 성공: {mapped}/{total}, Apple Music 없음: {failed}")
+    except Exception as e:
+        logger.error(f"오류 발생 — offset {i} 저장 후 중단: {e}")
+        save_progress(i)
+    finally:
+        await pool.close()
 
 
 if __name__ == "__main__":
