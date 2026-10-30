@@ -26,11 +26,11 @@ async def top_tracks(limit: int = 10):
     pool = await get_db_pool()
     rows = await pool.fetch(
         """
-        SELECT track_key::text, title::text, artist::text, album::text,
-               cover_image_url::text, playlist_count
-        FROM track_embeddings
-        WHERE embedding IS NOT NULL
-        ORDER BY playlist_count DESC
+        SELECT t.track_key::text, t.title::text, t.artist::text, t.album::text,
+               t.cover_image_url::text, t.playlist_count
+        FROM track_vectors_simgcl v
+        JOIN tracks t ON v.track_key = t.track_key
+        ORDER BY t.playlist_count DESC
         LIMIT $1
         """,
         limit,
@@ -59,11 +59,11 @@ async def music_map(request: MusicMapRequest):
     # 1. seed 트랙 조회
     seed_rows = await pool.fetch(
         """
-        SELECT track_key::text, title::text, artist::text, album::text,
-               cover_image_url::text, playlist_count, apple_music_id::text, embedding::text
-        FROM track_embeddings
-        WHERE track_key = ANY($1::text[])
-          AND embedding IS NOT NULL
+        SELECT t.track_key::text, t.title::text, t.artist::text, t.album::text,
+               t.cover_image_url::text, t.playlist_count, t.apple_music_id::text, v.embedding::text
+        FROM track_vectors_simgcl v
+        JOIN tracks t ON v.track_key = t.track_key
+        WHERE t.track_key = ANY($1::text[])
         """,
         request.track_keys,
     )
@@ -101,11 +101,11 @@ async def music_map(request: MusicMapRequest):
                t.cover_image_url::text, t.playlist_count, t.apple_music_id::text
         FROM seeds
         CROSS JOIN LATERAL (
-            SELECT track_key, title, artist, album, cover_image_url, playlist_count, apple_music_id
-            FROM track_embeddings
-            WHERE track_key != ALL($3::text[])
-              AND embedding IS NOT NULL
-            ORDER BY embedding <=> seeds.seed_emb
+            SELECT t.track_key, t.title, t.artist, t.album, t.cover_image_url, t.playlist_count, t.apple_music_id
+            FROM track_vectors_simgcl v
+            JOIN tracks t ON v.track_key = t.track_key
+            WHERE v.track_key != ALL($3::text[])
+            ORDER BY v.embedding <=> seeds.seed_emb
             LIMIT $4
         ) t
         """,

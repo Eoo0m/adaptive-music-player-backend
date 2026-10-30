@@ -30,7 +30,7 @@ async def get_favorites(user: dict = Depends(get_current_user)):
             t.apple_music_id::text,
             t.playlist_count
         FROM user_favorites f
-        JOIN track_embeddings t ON f.track_key = t.track_key
+        JOIN tracks t ON f.track_key = t.track_key
         WHERE f.user_id = $1::uuid
         ORDER BY f.created_at DESC
         """,

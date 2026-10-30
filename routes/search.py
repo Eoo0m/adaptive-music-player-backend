@@ -56,7 +56,7 @@ async def search_tracks_by_title_raw(query_text: str, match_count: int = 10):
             cover_image_url::text,
             apple_music_id::text,
             similarity(lower(title || ' ' || artist), lower($1))::float AS similarity
-        FROM track_embeddings
+        FROM tracks
         WHERE lower(title || ' ' || artist) % lower($1)
            OR lower(title) ILIKE $1 || '%'
            OR lower(artist) ILIKE $1 || '%'
@@ -132,7 +132,7 @@ async def find_similar_tracks(request: RecommendRequest):
         db_start_ms = now_ms()
         # 쿼리 트랙 임베딩 먼저 별도 조회 (WITH 서브쿼리는 HNSW 인덱스 못 타는 경우 있음)
         query_row = await pool.fetchrow(
-            "SELECT embedding::text FROM track_embeddings WHERE track_key = $1 LIMIT 1",
+            "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1 LIMIT 1",
             request.track_key,
         )
         if not query_row or not query_row["embedding"]:
@@ -141,19 +141,19 @@ async def find_similar_tracks(request: RecommendRequest):
         rows = await pool.fetch(
             """
             SELECT
-                id,
-                track_key::text,
-                title::text,
-                artist::text,
-                album::text,
-                playlist_count,
-                cover_image_url::text,
-                apple_music_id::text,
-                (1 - (embedding <=> $2::vector))::float AS similarity
-            FROM track_embeddings
-            WHERE track_key != $1
-              AND embedding IS NOT NULL
-            ORDER BY embedding <=> $2::vector
+                t.id,
+                t.track_key::text,
+                t.title::text,
+                t.artist::text,
+                t.album::text,
+                t.playlist_count,
+                t.cover_image_url::text,
+                t.apple_music_id::text,
+                (1 - (v.embedding <=> $2::vector))::float AS similarity
+            FROM track_vectors_simgcl v
+            JOIN tracks t ON v.track_key = t.track_key
+            WHERE v.track_key != $1
+            ORDER BY v.embedding <=> $2::vector
             LIMIT $3
             """,
             request.track_key,
@@ -260,10 +260,10 @@ async def search_by_keyword(request: KeywordSearchRequest):
                 t.playlist_count,
                 t.cover_image_url::text,
                 t.apple_music_id::text,
-                t.projected_embedding::text
-            FROM track_embeddings t
-            WHERE t.projected_embedding IS NOT NULL
-            ORDER BY t.projected_embedding <=> $1::vector
+                v.projected_embedding::text
+            FROM track_vectors_clip v
+            JOIN tracks t ON v.track_key = t.track_key
+            ORDER BY v.projected_embedding <=> $1::vector
             LIMIT $2
             """,
             str(projected_embedding_np.tolist()),

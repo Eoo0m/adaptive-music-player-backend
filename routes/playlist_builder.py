@@ -69,10 +69,10 @@ async def fetch_keyword_candidates(keyword: str, limit: int = 100):
             t.playlist_count,
             t.cover_image_url::text,
             t.apple_music_id::text,
-            t.projected_embedding::text
-        FROM track_embeddings t
-        WHERE t.projected_embedding IS NOT NULL
-        ORDER BY t.projected_embedding <=> $1::vector
+            v.projected_embedding::text
+        FROM track_vectors_clip v
+        JOIN tracks t ON v.track_key = t.track_key
+        ORDER BY v.projected_embedding <=> $1::vector
         LIMIT $2
         """,
         str(projected_embedding_np.tolist()),
@@ -102,14 +102,14 @@ async def fetch_keyword_candidates(keyword: str, limit: int = 100):
 async def fetch_similar_candidates(track_key: str, limit: int = 50):
     """track_key 기반 유사곡 limit개 가져오기"""
     pool = await get_db_pool()
+    query_row = await pool.fetchrow(
+        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
+        track_key
+    )
+    if not query_row:
+        return []
     rows = await pool.fetch(
         """
-        WITH query_track AS (
-            SELECT embedding
-            FROM track_embeddings
-            WHERE track_key = $1
-            LIMIT 1
-        )
         SELECT
             t.track_key::text,
             t.title::text,
@@ -118,15 +118,14 @@ async def fetch_similar_candidates(track_key: str, limit: int = 50):
             t.playlist_count,
             t.cover_image_url::text,
             t.apple_music_id::text,
-            (1 - (t.embedding <=> q.embedding))::float AS similarity
-        FROM track_embeddings t, query_track q
-        WHERE t.track_key != $1
-          AND t.embedding IS NOT NULL
-        ORDER BY t.embedding <=> q.embedding
-        LIMIT $2
+            (1 - (v.embedding <=> $2::vector))::float AS similarity
+        FROM track_vectors_simgcl v
+        JOIN tracks t ON v.track_key = t.track_key
+        WHERE v.track_key != $1
+        ORDER BY v.embedding <=> $2::vector
+        LIMIT $3
         """,
-        track_key,
-        limit
+        track_key, query_row["embedding"], limit
     )
 
     candidates = []
@@ -152,9 +151,8 @@ async def fetch_projected_embeddings(track_keys: List[str]):
     rows = await pool.fetch(
         """
         SELECT track_key::text, projected_embedding::text
-        FROM track_embeddings
+        FROM track_vectors_clip
         WHERE track_key = ANY($1::text[])
-          AND projected_embedding IS NOT NULL
         """,
         track_keys
     )
@@ -350,7 +348,7 @@ async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict 
                 t.playlist_count,
                 t.cover_image_url::text,
                 t.apple_music_id::text
-            FROM track_embeddings t
+            FROM tracks t
             WHERE t.track_key = ANY($1::text[])
             """,
             request.keyword_track_keys
@@ -511,7 +509,7 @@ async def playlist_builder_finish(request: PlaylistBuilderFinishRequest, user: d
                 t.playlist_count,
                 t.cover_image_url::text,
                 t.apple_music_id::text
-            FROM track_embeddings t
+            FROM tracks t
             WHERE t.track_key = ANY($1::text[])
             """,
             request.selected_track_keys
@@ -647,7 +645,7 @@ async def get_my_playlists(user: dict | None = Depends(get_optional_user)):
                 """
                 SELECT track_key::text, title::text, artist::text, album::text,
                        cover_image_url::text, playlist_count, apple_music_id::text
-                FROM track_embeddings
+                FROM tracks
                 WHERE track_key = ANY($1::text[])
                 """,
                 track_keys

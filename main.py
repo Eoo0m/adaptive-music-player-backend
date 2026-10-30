@@ -52,6 +52,7 @@ from routes.favorites import router as favorites_router
 from routes.home_feed import router as home_feed_router
 from routes.playlist_builder import router as playlist_builder_router
 from routes.music_map import router as music_map_router
+from routes.dynamic_streaming import router as dynamic_streaming_router
 from telemetry import elapsed_ms, new_request_id, now_ms, request_id_var
 
 # FastAPI 앱 생성
@@ -79,10 +80,10 @@ async def keep_alive_ping():
             ping_vec = ping_vec / np.linalg.norm(ping_vec)
             await pool.fetch(
                 """
-                SELECT track_key, title, artist
-                FROM track_embeddings
-                WHERE projected_embedding IS NOT NULL
-                ORDER BY projected_embedding <=> $1::vector
+                SELECT t.track_key, t.title, t.artist
+                FROM track_vectors_clip v
+                JOIN tracks t ON v.track_key = t.track_key
+                ORDER BY v.projected_embedding <=> $1::vector
                 LIMIT 10
                 """,
                 str(ping_vec.tolist())
@@ -92,7 +93,7 @@ async def keep_alive_ping():
             await pool.fetch(
                 """
                 SELECT id, track_key, title, artist
-                FROM track_embeddings
+                FROM tracks
                 WHERE lower(title) ILIKE 'test%'
                 LIMIT 5
                 """
@@ -140,11 +141,11 @@ async def startup_event():
             warmup_vec = warmup_vec / np.linalg.norm(warmup_vec)
             await pool.fetch(
                 """
-                SELECT track_key, title, artist, album, playlist_count, cover_image_url,
-                       (1 - (projected_embedding <=> $1::vector))::float AS similarity
-                FROM track_embeddings
-                WHERE projected_embedding IS NOT NULL
-                ORDER BY projected_embedding <=> $1::vector
+                SELECT t.track_key, t.title, t.artist, t.album, t.playlist_count, t.cover_image_url,
+                       (1 - (v.projected_embedding <=> $1::vector))::float AS similarity
+                FROM track_vectors_clip v
+                JOIN tracks t ON v.track_key = t.track_key
+                ORDER BY v.projected_embedding <=> $1::vector
                 LIMIT 10
                 """,
                 str(warmup_vec.tolist())
@@ -160,7 +161,7 @@ async def startup_event():
                 """
                 SELECT id, track_key, title, artist, album, playlist_count, cover_image_url,
                        similarity(lower(title || ' ' || artist), lower($1))::float AS similarity
-                FROM track_embeddings
+                FROM tracks
                 WHERE lower(title || ' ' || artist) % lower($1)
                    OR lower(title) ILIKE $1 || '%'
                    OR lower(artist) ILIKE $1 || '%'
@@ -318,6 +319,7 @@ app.include_router(favorites_router)
 app.include_router(home_feed_router)
 app.include_router(playlist_builder_router)
 app.include_router(music_map_router)
+app.include_router(dynamic_streaming_router)
 
 
 # ============== 서버 실행 ==============
