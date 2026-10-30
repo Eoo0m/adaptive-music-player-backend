@@ -60,7 +60,7 @@ async def music_map(request: MusicMapRequest):
     seed_rows = await pool.fetch(
         """
         SELECT track_key::text, title::text, artist::text, album::text,
-               cover_image_url::text, playlist_count, embedding::text
+               cover_image_url::text, playlist_count, apple_music_id::text, embedding::text
         FROM track_embeddings
         WHERE track_key = ANY($1::text[])
           AND embedding IS NOT NULL
@@ -98,10 +98,10 @@ async def music_map(request: MusicMapRequest):
         SELECT DISTINCT ON (seeds.seed_key, t.track_key)
                seeds.seed_key::text,
                t.track_key::text, t.title::text, t.artist::text, t.album::text,
-               t.cover_image_url::text, t.playlist_count
+               t.cover_image_url::text, t.playlist_count, t.apple_music_id::text
         FROM seeds
         CROSS JOIN LATERAL (
-            SELECT track_key, title, artist, album, cover_image_url, playlist_count
+            SELECT track_key, title, artist, album, cover_image_url, playlist_count, apple_music_id
             FROM track_embeddings
             WHERE track_key != ALL($3::text[])
               AND embedding IS NOT NULL
@@ -314,6 +314,7 @@ async def music_map(request: MusicMapRequest):
             "artist": row["artist"],
             "album": row["album"],
             "cover_image_url": row["cover_image_url"],
+            "apple_music_id": row.get("apple_music_id"),
             "playlist_count": row["playlist_count"],
             "is_seed": is_seed,
             "is_favorite": tk in favorite_set,
