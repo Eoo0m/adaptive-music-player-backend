@@ -67,8 +67,9 @@ async def dynamic_next(request: DynamicNextRequest):
     else:
         # 50% 미만 → cosine 가장 먼 시드 트랙 (playlist_count 높은 상위 200개 중)
         next_row = await pool.fetchrow(
-            f"""
-            SELECT {TRACK_FIELDS}
+            """
+            SELECT sub.track_key::text, sub.title::text, sub.artist::text, sub.album::text,
+                   sub.cover_image_url::text, sub.apple_music_id::text, sub.playlist_count
             FROM (
                 SELECT v.embedding, t.track_key, t.title, t.artist, t.album,
                        t.cover_image_url, t.apple_music_id, t.playlist_count
