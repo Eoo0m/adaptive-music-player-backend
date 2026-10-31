@@ -27,7 +27,8 @@ TRACK_FIELDS = """
 
 class DynamicNextRequest(BaseModel):
     track_key: str
-    listened_half: bool = False  # True: 50% 이상 들음 → adjacent, False: → distant seed
+    listened_half: bool = False
+    candidate_track_keys: Optional[list] = None  # 지도에 있는 트랙들
 
 
 @router.post("/dynamic-next")
@@ -50,24 +51,31 @@ async def dynamic_next(request: DynamicNextRequest):
     emb = np.array(json_module.loads(row["embedding"]), dtype=np.float32)
     emb_str = str(emb.tolist())
 
+    # candidate_track_keys가 있으면 지도 내 트랙으로만 제한
+    candidate_filter = ""
+    candidate_args = [request.track_key, emb_str]
+    if request.candidate_track_keys:
+        candidate_filter = "AND t.track_key = ANY($3::text[])"
+        candidate_args.append(request.candidate_track_keys)
+
     if request.listened_half:
-        # 50% 이상 들음 → cosine 가장 가까운 인접 트랙 (자기 자신 제외)
+        # 50% 이상 들음 → cosine 가장 가까운 인접 트랙
         next_row = await pool.fetchrow(
             f"""
             SELECT {TRACK_FIELDS}
             FROM track_vectors_simgcl v
             JOIN tracks t ON v.track_key = t.track_key
             WHERE t.track_key != $1
+            {candidate_filter}
             ORDER BY v.embedding <=> $2::vector
             LIMIT 1
             """,
-            request.track_key,
-            emb_str,
+            *candidate_args,
         )
     else:
-        # 50% 미만 → cosine 가장 먼 시드 트랙 (playlist_count 높은 상위 200개 중)
+        # 50% 미만 → cosine 가장 먼 트랙
         next_row = await pool.fetchrow(
-            """
+            f"""
             SELECT sub.track_key::text, sub.title::text, sub.artist::text, sub.album::text,
                    sub.cover_image_url::text, sub.apple_music_id::text, sub.playlist_count
             FROM (
@@ -76,14 +84,14 @@ async def dynamic_next(request: DynamicNextRequest):
                 FROM track_vectors_simgcl v
                 JOIN tracks t ON v.track_key = t.track_key
                 WHERE t.track_key != $1
+                {candidate_filter}
                 ORDER BY t.playlist_count DESC
                 LIMIT 200
             ) sub
             ORDER BY sub.embedding <=> $2::vector DESC
             LIMIT 1
             """,
-            request.track_key,
-            emb_str,
+            *candidate_args,
         )
 
     if not next_row:
