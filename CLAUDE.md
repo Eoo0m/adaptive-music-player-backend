@@ -24,8 +24,12 @@ routes/
   favorites.py       # /favorites (GET/POST/DELETE)
   home_feed.py       # /home-feed (찜 기반 개인화 피드)
   action_log.py      # /log-action (유저 행동 로그)
+  music_map.py       # /music-map, /top-tracks (취향 지도)
+  dynamic_streaming.py  # /dynamic-next (다음 곡 선택)
+  playlist_builder.py   # /playlist-builder
 sql/                 # DB 스키마, 인덱스, 테이블 정의
 experiments/         # HNSW recall 실험 등
+docs/                # 변경 이력, 이슈 기록
 ```
 
 ## Key APIs
@@ -41,9 +45,14 @@ experiments/         # HNSW recall 실험 등
 | /favorites | GET/POST/DELETE | JWT | 찜 목록 CRUD |
 | /home-feed | GET | JWT | 개인화 홈 피드 |
 | /log-action | POST | X | 유저 행동 로그 |
+| /music-map | POST | JWT | 취향 지도 (MDS + 격자 배치), 응답에 embedding 포함 |
+| /top-tracks | GET | X | 저장수 높은 트랙 (지도 seed용) |
+| /dynamic-next | POST | X | 다음 곡 선택 (인접/먼 트랙) — 현재 프론트에서 직접 계산으로 대체됨 |
 
 ## DB Tables
-- `track_embeddings` — 트랙 메타 + 벡터 (embedding 64d, projected 512d, itemtower 128d)
+- `tracks` — 트랙 메타 (track_key, title, artist, album, cover_image_url, apple_music_id, playlist_count)
+- `track_vectors_simgcl` — SimGCL embedding 64d
+- `track_vectors_twotower` — Two-Tower itemtower_embedding 128d
 - `users` — Google OAuth 유저
 - `user_favorites` — 찜 목록
 - `user_action_logs` — 유저 행동 로그 (search, select, favorite, play)
@@ -65,7 +74,10 @@ experiments/         # HNSW recall 실험 등
 
 ## Deploy
 ```bash
-# NCP 서버에서
+# 1. 로컬에서 git push
+git push
+
+# 2. NCP 서버에서
 cd /opt/dynplayer && bash deploy.sh
 ```
 서버 포트: 8889, 도메인: api.caromusic.kr
