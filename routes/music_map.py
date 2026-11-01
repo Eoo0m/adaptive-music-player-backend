@@ -98,11 +98,10 @@ async def music_map(request: MusicMapRequest):
         SELECT DISTINCT ON (seeds.seed_key, t.track_key)
                seeds.seed_key::text,
                t.track_key::text, t.title::text, t.artist::text, t.album::text,
-               t.cover_image_url::text, t.playlist_count, t.apple_music_id::text,
-               t.embedding
+               t.cover_image_url::text, t.playlist_count, t.apple_music_id::text
         FROM seeds
         CROSS JOIN LATERAL (
-            SELECT t.track_key, t.title, t.artist, t.album, t.cover_image_url, t.playlist_count, t.apple_music_id, v.embedding::text
+            SELECT t.track_key, t.title, t.artist, t.album, t.cover_image_url, t.playlist_count, t.apple_music_id
             FROM track_vectors_simgcl v
             JOIN tracks t ON v.track_key = t.track_key
             WHERE v.track_key != ALL($3::text[])
@@ -309,9 +308,6 @@ async def music_map(request: MusicMapRequest):
         source_meta = seed_meta_map.get(source_key) if source_key else None
         gcol, grow = final_cells.get(tk, (0, 0))
 
-        emb_raw = row.get("embedding")
-        emb_list = json_module.loads(emb_raw) if emb_raw else None
-
         tracks.append({
             "track_key": tk,
             "title": row["title"],
@@ -330,7 +326,6 @@ async def music_map(request: MusicMapRequest):
             "grid_row": grow,
             "x": float(gcol),
             "y": float(grow),
-            "embedding": emb_list,
         })
 
     elapsed("8. 결과 구성")

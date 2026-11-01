@@ -2,12 +2,12 @@
 Dynamic Streaming API
 
 /dynamic-next:
-  - listened_half=True  → 지도에서 인접 트랙으로 이동 (cosine 유사도 최근접)
-  - listened_half=False → 거리가 먼 시드 트랙으로 이동 (cosine 거리 가장 큰 트랙)
+  - listened_half=True  → 가장 가까운 트랙 상위 4개 반환
+  - listened_half=False → 전체 후보 중 cosine 거리 먼 상위 30% → 랜덤 4개 반환
 """
 
-import json as json_module
 import logging
+import random
 
 import numpy as np
 from fastapi import APIRouter, HTTPException
@@ -24,11 +24,13 @@ TRACK_FIELDS = """
     t.cover_image_url::text, t.apple_music_id::text, t.playlist_count
 """
 
+RETRY_COUNT = 4
+
 
 class DynamicNextRequest(BaseModel):
     track_key: str
     listened_half: bool = False
-    candidate_track_keys: Optional[list] = None  # 지도에 있는 트랙들
+    candidate_track_keys: Optional[list] = None
 
 
 @router.post("/dynamic-next")
@@ -38,7 +40,7 @@ async def dynamic_next(request: DynamicNextRequest):
     # 현재 트랙 임베딩 조회
     row = await pool.fetchrow(
         """
-        SELECT v.embedding::text, t.track_key::text
+        SELECT v.embedding::text
         FROM track_vectors_simgcl v
         JOIN tracks t ON v.track_key = t.track_key
         WHERE t.track_key = $1
@@ -48,10 +50,10 @@ async def dynamic_next(request: DynamicNextRequest):
     if not row:
         raise HTTPException(status_code=404, detail="트랙을 찾을 수 없습니다")
 
-    emb = np.array(json_module.loads(row["embedding"]), dtype=np.float32)
+    emb = np.array(eval(row["embedding"]), dtype=np.float32)
+    emb_norm = emb / (np.linalg.norm(emb) + 1e-8)
     emb_str = str(emb.tolist())
 
-    # candidate_track_keys가 있으면 지도 내 트랙으로만 제한
     candidate_filter = ""
     candidate_args = [request.track_key, emb_str]
     if request.candidate_track_keys:
@@ -59,8 +61,8 @@ async def dynamic_next(request: DynamicNextRequest):
         candidate_args.append(request.candidate_track_keys)
 
     if request.listened_half:
-        # 50% 이상 들음 → cosine 가장 가까운 인접 트랙
-        next_row = await pool.fetchrow(
+        # 가장 가까운 상위 RETRY_COUNT개
+        rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
             FROM track_vectors_simgcl v
@@ -68,33 +70,44 @@ async def dynamic_next(request: DynamicNextRequest):
             WHERE t.track_key != $1
             {candidate_filter}
             ORDER BY v.embedding <=> $2::vector
-            LIMIT 1
+            LIMIT {RETRY_COUNT}
             """,
             *candidate_args,
         )
+        tracks = [dict(r) for r in rows]
     else:
-        # 50% 미만 → cosine 가장 먼 트랙
-        next_row = await pool.fetchrow(
+        # 전체 후보 조회 후 상위 30% 랜덤
+        rows = await pool.fetch(
             f"""
-            SELECT sub.track_key::text, sub.title::text, sub.artist::text, sub.album::text,
-                   sub.cover_image_url::text, sub.apple_music_id::text, sub.playlist_count
-            FROM (
-                SELECT v.embedding, t.track_key, t.title, t.artist, t.album,
-                       t.cover_image_url, t.apple_music_id, t.playlist_count
-                FROM track_vectors_simgcl v
-                JOIN tracks t ON v.track_key = t.track_key
-                WHERE t.track_key != $1
-                {candidate_filter}
-                ORDER BY t.playlist_count DESC
-                LIMIT 200
-            ) sub
-            ORDER BY sub.embedding <=> $2::vector DESC
-            LIMIT 1
+            SELECT {TRACK_FIELDS}, v.embedding::text AS emb
+            FROM track_vectors_simgcl v
+            JOIN tracks t ON v.track_key = t.track_key
+            WHERE t.track_key != $1
+            {candidate_filter}
             """,
             *candidate_args,
         )
+        if not rows:
+            raise HTTPException(status_code=404, detail="다음 트랙을 찾을 수 없습니다")
 
-    if not next_row:
+        # cosine 거리 계산 후 먼 상위 30% 추출
+        scored = []
+        for r in rows:
+            e = np.array(eval(r["emb"]), dtype=np.float32)
+            e_norm = e / (np.linalg.norm(e) + 1e-8)
+            sim = float(np.dot(emb_norm, e_norm))
+            scored.append((sim, r))
+
+        scored.sort(key=lambda x: x[0])  # 먼 순(sim 낮은 순)
+        top30_count = max(RETRY_COUNT, int(len(scored) * 0.3))
+        pool30 = [r for _, r in scored[:top30_count]]
+        random.shuffle(pool30)
+        tracks = [{k: v for k, v in dict(r).items() if k != "emb"} for r in pool30[:RETRY_COUNT]]
+
+    if not tracks:
         raise HTTPException(status_code=404, detail="다음 트랙을 찾을 수 없습니다")
 
-    return {"track": dict(next_row), "mode": "adjacent" if request.listened_half else "distant_seed"}
+    return {
+        "tracks": tracks,
+        "mode": "adjacent" if request.listened_half else "distant_seed"
+    }
