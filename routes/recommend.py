@@ -53,7 +53,7 @@ async def recommend(request: RecommendAverageRequest):
         rows = await pool.fetch(
             """
             SELECT track_key, embedding
-            FROM track_vectors_simgcl
+            FROM track_embeddings
             WHERE track_key = ANY($1)
             """,
             request.track_keys
@@ -101,19 +101,18 @@ async def recommend(request: RecommendAverageRequest):
         rows = await pool.fetch(
             """
             SELECT
-                t.id,
-                t.track_key::text,
-                t.title::text,
-                t.artist::text,
-                t.album::text,
-                t.playlist_count,
-                t.cover_image_url::text,
-                t.apple_music_id::text,
-                (1 - (v.itemtower_embedding <=> $1::vector))::float AS similarity
-            FROM track_vectors_twotower v
-            JOIN tracks t ON v.track_key = t.track_key
-            WHERE v.track_key::text != ALL($2)
-            ORDER BY v.itemtower_embedding <=> $1::vector
+                te.id,
+                te.track_key::text,
+                te.title::text,
+                te.artist::text,
+                te.album::text,
+                te.playlist_count,
+                te.cover_image_url::text,
+                te.apple_music_id::text,
+                (1 - (te.itemtower_embedding <=> $1::vector))::float AS similarity
+            FROM track_embeddings te
+            WHERE te.track_key::text != ALL($2)
+            ORDER BY te.itemtower_embedding <=> $1::vector
             LIMIT $3
             """,
             str(user_embedding_list),
