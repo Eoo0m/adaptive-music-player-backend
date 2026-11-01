@@ -253,17 +253,16 @@ async def search_by_keyword(request: KeywordSearchRequest):
         rows = await pool.fetch(
             """
             SELECT
-                t.track_key::text,
-                t.title::text,
-                t.artist::text,
-                t.album::text,
-                t.playlist_count,
-                t.cover_image_url::text,
-                t.apple_music_id::text,
-                v.projected_embedding::text
-            FROM track_vectors_clip v
-            JOIN tracks t ON v.track_key = t.track_key
-            ORDER BY v.projected_embedding <=> $1::vector
+                te.track_key::text,
+                te.title::text,
+                te.artist::text,
+                te.album::text,
+                te.playlist_count,
+                te.cover_image_url::text,
+                te.apple_music_id::text,
+                te.projected_embedding::text
+            FROM track_embeddings te
+            ORDER BY te.projected_embedding <=> $1::vector
             LIMIT $2
             """,
             str(projected_embedding_np.tolist()),
