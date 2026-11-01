@@ -54,39 +54,57 @@ async def dynamic_next(request: DynamicNextRequest):
     emb_norm = emb / (np.linalg.norm(emb) + 1e-8)
     emb_str = str(emb.tolist())
 
-    candidate_filter = ""
-    candidate_args = [request.track_key, emb_str]
-    if request.candidate_track_keys:
-        candidate_filter = "AND t.track_key = ANY($3::text[])"
-        candidate_args.append(request.candidate_track_keys)
-
     if request.listened_half:
         # 가장 가까운 상위 RETRY_COUNT개
-        rows = await pool.fetch(
-            f"""
-            SELECT {TRACK_FIELDS}
-            FROM track_vectors_simgcl v
-            JOIN tracks t ON v.track_key = t.track_key
-            WHERE t.track_key != $1
-            {candidate_filter}
-            ORDER BY v.embedding <=> $2::vector
-            LIMIT {RETRY_COUNT}
-            """,
-            *candidate_args,
-        )
+        if request.candidate_track_keys:
+            rows = await pool.fetch(
+                f"""
+                SELECT {TRACK_FIELDS}
+                FROM track_vectors_simgcl v
+                JOIN tracks t ON v.track_key = t.track_key
+                WHERE t.track_key != $1
+                AND t.track_key = ANY($3::text[])
+                ORDER BY v.embedding <=> $2::vector
+                LIMIT {RETRY_COUNT}
+                """,
+                request.track_key, emb_str, request.candidate_track_keys,
+            )
+        else:
+            rows = await pool.fetch(
+                f"""
+                SELECT {TRACK_FIELDS}
+                FROM track_vectors_simgcl v
+                JOIN tracks t ON v.track_key = t.track_key
+                WHERE t.track_key != $1
+                ORDER BY v.embedding <=> $2::vector
+                LIMIT {RETRY_COUNT}
+                """,
+                request.track_key, emb_str,
+            )
         tracks = [dict(r) for r in rows]
     else:
-        # 전체 후보 조회 후 상위 30% 랜덤
-        rows = await pool.fetch(
-            f"""
-            SELECT {TRACK_FIELDS}, v.embedding::text AS emb
-            FROM track_vectors_simgcl v
-            JOIN tracks t ON v.track_key = t.track_key
-            WHERE t.track_key != $1
-            {candidate_filter}
-            """,
-            *candidate_args,
-        )
+        # 전체 후보 조회 후 상위 30% 랜덤 (Python에서 cosine 계산)
+        if request.candidate_track_keys:
+            rows = await pool.fetch(
+                f"""
+                SELECT {TRACK_FIELDS}, v.embedding::text AS emb
+                FROM track_vectors_simgcl v
+                JOIN tracks t ON v.track_key = t.track_key
+                WHERE t.track_key != $1
+                AND t.track_key = ANY($2::text[])
+                """,
+                request.track_key, request.candidate_track_keys,
+            )
+        else:
+            rows = await pool.fetch(
+                f"""
+                SELECT {TRACK_FIELDS}, v.embedding::text AS emb
+                FROM track_vectors_simgcl v
+                JOIN tracks t ON v.track_key = t.track_key
+                WHERE t.track_key != $1
+                """,
+                request.track_key,
+            )
         if not rows:
             raise HTTPException(status_code=404, detail="다음 트랙을 찾을 수 없습니다")
 
