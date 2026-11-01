@@ -99,7 +99,7 @@ async def music_map(request: MusicMapRequest):
                seeds.seed_key::text,
                t.track_key::text, t.title::text, t.artist::text, t.album::text,
                t.cover_image_url::text, t.playlist_count, t.apple_music_id::text,
-               v.embedding::text
+               t.embedding
         FROM seeds
         CROSS JOIN LATERAL (
             SELECT t.track_key, t.title, t.artist, t.album, t.cover_image_url, t.playlist_count, t.apple_music_id, v.embedding::text
