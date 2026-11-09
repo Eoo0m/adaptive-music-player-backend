@@ -54,6 +54,7 @@ from routes.home_feed_v2 import router as home_feed_v2_router
 from routes.playlist_builder import router as playlist_builder_router
 from routes.music_map import router as music_map_router
 from routes.dynamic_streaming import router as dynamic_streaming_router
+from routes.smart_search import router as smart_search_router
 from telemetry import elapsed_ms, new_request_id, now_ms, request_id_var
 
 # FastAPI 앱 생성
@@ -322,6 +323,7 @@ app.include_router(home_feed_v2_router)
 app.include_router(playlist_builder_router)
 app.include_router(music_map_router)
 app.include_router(dynamic_streaming_router)
+app.include_router(smart_search_router)
 
 
 # ============== 서버 실행 ==============

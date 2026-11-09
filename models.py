@@ -179,6 +179,25 @@ class TwoTowerModel(nn.Module):
         return self.item_tower(items)
 
 
+# ============== Intent Classifier ==============
+
+class IntentClassifier(nn.Module):
+    def __init__(self, in_dim=3072, hidden_dim=512, n_classes=2, dropout=0.2):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, n_classes),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
 # ============== 모델 로드 ==============
 
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -206,3 +225,11 @@ two_tower_model.load_state_dict(torch.load("two_tower_best.pt", map_location=dev
 two_tower_model.eval()
 
 logger.info(f"✅ Two-Tower model (two_tower_best.pt) loaded on {device}")
+
+# Intent Classifier 로드
+intent_classifier = IntentClassifier(in_dim=3072, hidden_dim=512, n_classes=2).to(device)
+intent_classifier.load_state_dict(torch.load("intent_classifier.pt", map_location=device))
+intent_classifier.eval()
+INTENT_THRESHOLD = 0.45  # mood 판정 threshold
+
+logger.info(f"✅ Intent Classifier (intent_classifier.pt) loaded on {device}")
