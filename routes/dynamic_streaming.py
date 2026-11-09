@@ -41,8 +41,9 @@ async def dynamic_next(request: DynamicNextRequest):
     row = await pool.fetchrow(
         """
         SELECT v.embedding::text
-        FROM track_embeddings v
-        WHERE v.track_key = $1
+        FROM track_vectors_simgcl v
+        JOIN tracks t ON v.track_key = t.track_key
+        WHERE t.track_key = $1
         """,
         request.track_key,
     )
@@ -59,7 +60,7 @@ async def dynamic_next(request: DynamicNextRequest):
             rows = await pool.fetch(
                 f"""
                 SELECT {TRACK_FIELDS}
-                FROM track_embeddings v
+                FROM track_vectors_simgcl v
                 JOIN tracks t ON v.track_key = t.track_key
                 WHERE t.track_key != $1
                 AND t.track_key = ANY($3::text[])
@@ -72,7 +73,7 @@ async def dynamic_next(request: DynamicNextRequest):
             rows = await pool.fetch(
                 f"""
                 SELECT {TRACK_FIELDS}
-                FROM track_embeddings v
+                FROM track_vectors_simgcl v
                 JOIN tracks t ON v.track_key = t.track_key
                 WHERE t.track_key != $1
                 ORDER BY v.embedding <=> $2::vector
@@ -87,7 +88,7 @@ async def dynamic_next(request: DynamicNextRequest):
             rows = await pool.fetch(
                 f"""
                 SELECT {TRACK_FIELDS}, v.embedding::text AS emb
-                FROM track_embeddings v
+                FROM track_vectors_simgcl v
                 JOIN tracks t ON v.track_key = t.track_key
                 WHERE t.track_key != $1
                 AND t.track_key = ANY($2::text[])
@@ -98,7 +99,7 @@ async def dynamic_next(request: DynamicNextRequest):
             rows = await pool.fetch(
                 f"""
                 SELECT {TRACK_FIELDS}, v.embedding::text AS emb
-                FROM track_embeddings v
+                FROM track_vectors_simgcl v
                 JOIN tracks t ON v.track_key = t.track_key
                 WHERE t.track_key != $1
                 """,
