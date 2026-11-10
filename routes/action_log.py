@@ -58,12 +58,76 @@ async def log_action(request: ActionLogRequest, req: Request):
             request.extra
         )
 
+        # 검색 키워드 카운트 증가
+        if request.action_type == "search" and request.search_query:
+            await pool.execute(
+                """
+                INSERT INTO search_keywords (keyword, search_count)
+                VALUES ($1, 1)
+                ON CONFLICT (keyword) DO UPDATE
+                    SET search_count = search_keywords.search_count + 1
+                """,
+                request.search_query.strip()
+            )
+
         logger.info(f"Action logged: {request.action_type} | session={request.session_id} | user={user_id}")
         return {"success": True}
 
     except Exception as e:
         logger.error(f"Action log error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to log action")
+
+
+@router.get("/recent-searches")
+async def recent_searches(limit: int = 10, user: dict | None = Depends(get_optional_user)):
+    """최근 검색 키워드 목록 (유저 기반, 중복 제거, 최신순)"""
+    user_id = user["user_id"] if user else None
+    if not user_id:
+        return {"queries": []}
+    try:
+        pool = await get_db_pool()
+        rows = await pool.fetch(
+            """
+            SELECT DISTINCT ON (search_query) search_query, MAX(created_at) AS last_searched
+            FROM user_action_logs
+            WHERE action_type = 'search'
+              AND user_id = $1::uuid
+              AND search_query IS NOT NULL
+              AND search_query != ''
+            GROUP BY search_query
+            ORDER BY search_query, last_searched DESC
+            LIMIT $2
+            """,
+            user_id, limit * 3
+        )
+        sorted_rows = sorted(rows, key=lambda r: r["last_searched"], reverse=True)[:limit]
+        return {"queries": [r["search_query"] for r in sorted_rows]}
+    except Exception as e:
+        logger.error(f"Recent searches error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch recent searches")
+
+
+@router.delete("/recent-searches/{query}")
+async def delete_recent_search(query: str, user: dict | None = Depends(get_optional_user)):
+    """특정 검색 키워드 기록 삭제"""
+    user_id = user["user_id"] if user else None
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Login required")
+    try:
+        pool = await get_db_pool()
+        await pool.execute(
+            """
+            DELETE FROM user_action_logs
+            WHERE action_type = 'search'
+              AND user_id = $1::uuid
+              AND search_query = $2
+            """,
+            user_id, query
+        )
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Delete recent search error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete search")
 
 
 @router.get("/recent-plays")

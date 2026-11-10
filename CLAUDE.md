@@ -77,10 +77,25 @@ docs/                # 변경 이력, 이슈 기록
 # 1. 로컬에서 git push
 git push
 
-# 2. NCP 서버에서
+# 2. NCP 서버 SSH 접속
+ssh ncp-dynplayer
+
+# 3. 배포
 cd /opt/dynplayer && bash deploy.sh
 ```
+
 서버 포트: 8889, 도메인: api.caromusic.kr
+
+SSH 설정 (`~/.ssh/config`):
+```
+Host ncp-dynplayer
+    HostName 223.130.128.15
+    User root
+    IdentityFile ~/.ssh/dynamic-player.pem
+    IdentitiesOnly yes
+```
+
+> NCP 시리얼 콘솔은 인코딩 깨짐 이슈 있음 → SSH 사용 권장
 
 ## .env 필수 변수
 DATABASE_URL, SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY,
