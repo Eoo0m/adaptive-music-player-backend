@@ -32,56 +32,35 @@ experiments/         # HNSW recall 실험 등
 docs/                # 변경 이력, 이슈 기록
 ```
 
-## API 명세 및 의도
-
-### 검색 플로우
-검색 UX는 세 단계로 분리되어 있다. 각 단계가 명확히 구분되어야 직관성이 살아난다.
-
-```
-타이핑 중         → /search-autocomplete  (자동완성 드롭다운)
-검색 실행 후      → /search-songs         (엔티티: 곡명/아티스트 매칭)
-                  + /smart-search         (키워드: 분위기/감성 의미 검색)
-결과 커버 탭 후   → /find-similar-tracks  (유사곡 추천 그리드로 전환)
-```
-
-**기존 문제**: 검색 결과(엔티티)와 키워드 감성 결과가 같은 목록에 섞여 나와 사용자가 "지금 뭘 보고 있나" 구분이 안 됐음.
-**해결**: 검색 결과(2행 가로 스크롤) / 키워드 결과(3열 세로 스크롤)로 시각적으로 완전 분리.
-
-### 전체 API 목록
-
-| Endpoint | Method | Auth | 의도 |
+## Key APIs
+| Endpoint | Method | Auth | Description |
 |---|---|---|---|
-| /search-autocomplete | GET | X | 타이핑 중 실시간 제안. prefix 우선 + trigram + 인기도 스코어링. `search_keywords` 테이블 조회 |
-| /search-songs | POST | X | 곡명/아티스트 텍스트 매칭 (pg_trgm). 검색 버튼 누른 직후 빠르게 반환 |
-| /smart-search | POST | X | 의도 분류(mood vs entity) → mood이면 CLIP 임베딩으로 감성/분위기 검색. 느리지만 의미 기반 |
-| /find-similar-tracks | POST | X | 커버 탭 시 호출. SimGCL 임베딩 기반 유사곡 → 추천 그리드로 화면 전환 |
-| /recommend | POST | X | Two-Tower 세션 기반 추천. 여러 트랙 키를 넣으면 취향 맞는 곡 반환 |
-| /dynamic-next | POST | X | 다음 곡 자동 재생. `listened_half=true`이면 유사곡, false이면 먼 곡(탐색). `candidate_keys`로 취향지도 내 곡으로 제한 가능 |
-| /music-map | POST | JWT | 찜한 곡 기반 MDS 취향 지도. 격자 배치 + 임베딩 반환. 취향의 전체 그림을 시각화 |
-| /top-tracks | GET | X | playlist_count 기준 인기 트랙. 취향지도 seed용 |
-| /home-feed-v2 | GET | JWT | 인기곡 + 유사곡 + 계절 트랙 혼합. 로그인 유저 맞춤 |
-| /favorites | GET/POST/DELETE | JWT | 찜 목록 CRUD. 취향지도의 핵심 데이터 |
-| /recent-searches | GET/DELETE | JWT | 최근 검색 키워드. 검색창 홈화면에 칩으로 표시 |
-| /recent-plays | GET | JWT | 최근 재생 트랙 목록 |
-| /log-action | POST | X | 유저 행동 로그 (search/play/favorite). search 타입은 search_keywords 카운트도 증가 |
-| /auth/apple/mobile | POST | X | Apple Sign In (iOS). identity_token 검증 → JWT 발급 |
-| /auth/me | GET | JWT | 현재 로그인 유저 정보 |
-| /playlist-builder/start | POST | JWT | 플리 빌더 시작. 키워드 기반 후보곡 반환 |
-| /playlist-builder/next | POST | JWT | 선택 트랙 기반 다음 후보 반환 |
-| /playlist-builder/save | POST | JWT | 플리 저장 |
-| /playlist-builder/my-playlists | GET | JWT | 내 플리 목록 |
+| /search-autocomplete | GET | X | 자동완성 (docs/search_autocomplete.md 참고) |
+| /search-songs | POST | X | 제목/아티스트 검색 |
+| /smart-search | POST | X | 의도 분류 → 엔티티 + 무드 결과 |
+| /find-similar-tracks | POST | X | 단일 트랙 유사곡 |
+| /recommend | POST | X | Two-Tower 세션 추천 |
+| /dynamic-next | POST | X | 다음 곡 선택 (인접/먼 트랙) |
+| /music-map | POST | JWT | 취향 지도 (MDS + 격자 배치) |
+| /top-tracks | GET | X | 저장수 높은 트랙 |
+| /home-feed-v2 | GET | JWT | 개인화 홈 피드 |
+| /favorites | GET/POST/DELETE | JWT | 찜 목록 CRUD |
+| /recent-searches | GET/DELETE | JWT | 최근 검색 키워드 |
+| /recent-plays | GET | JWT | 최근 재생 트랙 |
+| /log-action | POST | X | 유저 행동 로그 (search 타입은 search_keywords 카운트도 증가) |
+| /auth/apple/mobile | POST | X | Apple Sign In → JWT 발급 |
+| /auth/me | GET | JWT | 유저 정보 |
+| /playlist-builder/* | POST/GET | JWT | 플리 빌더 (start/next/save/my-playlists) |
 
-### DB Tables
-| 테이블 | 설명 |
-|---|---|
-| `tracks` | 트랙 메타 (track_key, title, artist, album, cover_image_url, apple_music_id, playlist_count) |
-| `track_embeddings` | SimGCL 64d + CLIP 512d + Two-Tower 128d 통합 (embedding, projected_embedding, itemtower_embedding) |
-| `track_vectors_simgcl` | SimGCL embedding 64d (find-similar-tracks, music-map 전용) |
-| `users` | Apple OAuth 유저 |
-| `user_favorites` | 찜 목록 |
-| `user_action_logs` | 행동 로그 (search/play/favorite/select) |
-| `search_keywords` | 자동완성용. keyword + search_count. title/artist로 초기 seed, 검색마다 카운트 증가 |
-| `user_playlists` | 플리 빌더로 저장한 플레이리스트 |
+## DB Tables
+- `tracks` — 트랙 메타 (track_key, title, artist, album, cover_image_url, apple_music_id, playlist_count)
+- `track_embeddings` — SimGCL 64d + CLIP 512d + Two-Tower 128d 통합
+- `track_vectors_simgcl` — SimGCL embedding 64d (find-similar-tracks, music-map 전용)
+- `users` — Apple OAuth 유저
+- `user_favorites` — 찜 목록
+- `user_action_logs` — 행동 로그 (search/play/favorite/select)
+- `search_keywords` — 자동완성용 키워드 + 검색수 (docs/search_autocomplete.md 참고)
+- `user_playlists` — 플리 빌더 저장 플레이리스트
 
 ## track_embeddings 임베딩 컬럼 용도
 
