@@ -83,14 +83,6 @@ docs/                # 변경 이력, 이슈 기록
 | `search_keywords` | 자동완성용. keyword + search_count. title/artist로 초기 seed, 검색마다 카운트 증가 |
 | `user_playlists` | 플리 빌더로 저장한 플레이리스트 |
 
-## DB Tables
-- `tracks` — 트랙 메타 (track_key, title, artist, album, cover_image_url, apple_music_id, playlist_count)
-- `track_vectors_simgcl` — SimGCL embedding 64d
-- `track_vectors_twotower` — Two-Tower itemtower_embedding 128d
-- `users` — Google OAuth 유저
-- `user_favorites` — 찜 목록
-- `user_action_logs` — 유저 행동 로그 (search, select, favorite, play)
-
 ## track_embeddings 임베딩 컬럼 용도
 
 | 컬럼 | 차원 | 생성 모델 | 학습 방법 | 용도 | HNSW 인덱스 |
