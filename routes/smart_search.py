@@ -103,6 +103,19 @@ async def _mood_search(projected_embedding_np: np.ndarray, candidates: int, top_
     return results
 
 
+async def _get_embedding(query: str, pool) -> tuple[np.ndarray, bool]:
+    """캐시된 임베딩 조회, 없으면 OpenAI 호출. (embedding_np, cache_hit) 반환"""
+    row = await pool.fetchrow(
+        "SELECT embedding::text FROM keyword_embeddings WHERE keyword = $1",
+        query.lower()
+    )
+    if row and row["embedding"]:
+        emb = np.array(json_module.loads(row["embedding"]), dtype=np.float32)
+        return emb, True
+    raw_emb = get_openai_embedding_with_retry(query)
+    return np.array(raw_emb, dtype=np.float32), False
+
+
 @router.post("/smart-search")
 async def smart_search(request: SmartSearchRequest):
     """의도 분류 → 엔티티/무드 결과 동시 반환"""
@@ -115,13 +128,13 @@ async def smart_search(request: SmartSearchRequest):
     query = request.query.strip()
 
     try:
-        # 1. OpenAI 임베딩 (1번만)
+        # 1. 임베딩 (캐시 → 없으면 OpenAI)
         t_emb = now_ms()
-        raw_emb = get_openai_embedding_with_retry(query)
+        pool = await get_db_pool()
+        emb_np, cache_hit = await _get_embedding(query, pool)
         emb_ms = elapsed_ms(t_emb)
-        logger.info(f"[{request_id}] /smart-search openai={emb_ms:.1f}ms query='{query}'")
+        logger.info(f"[{request_id}] /smart-search emb={'cache' if cache_hit else 'openai'}={emb_ms:.1f}ms query='{query}'")
 
-        emb_np = np.array(raw_emb, dtype=np.float32)
         emb_tensor = torch.tensor(emb_np).unsqueeze(0).to(device)
 
         # 2. Intent 판정 + CLIP 프로젝션 (동시, CPU ~1ms each)
