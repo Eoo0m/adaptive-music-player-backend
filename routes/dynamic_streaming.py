@@ -88,10 +88,10 @@ async def next_track(request: TrackRequest):
     pool = await get_db_pool()
     scored = await _fetch_candidates(pool, request.track_key, request.candidate_track_keys)
     scored.sort(key=lambda x: x[0], reverse=True)  # 가까운 순
-    top20_count = max(RETRY_COUNT, int(len(scored) * 0.2))
-    pool20 = [r for _, r in scored[:top20_count]]
-    random.shuffle(pool20)
-    tracks = [{k: v for k, v in dict(r).items() if k != "emb"} for r in pool20[:RETRY_COUNT]]
+    top10_count = max(RETRY_COUNT, int(len(scored) * 0.1))
+    pool10 = [r for _, r in scored[:top10_count]]
+    random.shuffle(pool10)
+    tracks = [{k: v for k, v in dict(r).items() if k != "emb"} for r in pool10[:RETRY_COUNT]]
     return {"tracks": tracks}
 
 
