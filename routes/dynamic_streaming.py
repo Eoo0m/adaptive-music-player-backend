@@ -33,6 +33,21 @@ class DynamicNextRequest(BaseModel):
     candidate_track_keys: Optional[list] = None
 
 
+class NextTrackRequest(BaseModel):
+    track_key: str
+    candidate_track_keys: Optional[list] = None
+
+
+@router.post("/next-track")
+async def next_track(request: NextTrackRequest):
+    """단순 유사곡 — listened_half=True와 동일, 미니플레이어 일반 다음곡 버튼용"""
+    return await dynamic_next(DynamicNextRequest(
+        track_key=request.track_key,
+        listened_half=True,
+        candidate_track_keys=request.candidate_track_keys,
+    ))
+
+
 @router.post("/dynamic-next")
 async def dynamic_next(request: DynamicNextRequest):
     pool = await get_db_pool()
