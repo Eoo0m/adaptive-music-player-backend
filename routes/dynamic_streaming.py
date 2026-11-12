@@ -84,11 +84,14 @@ async def _fetch_candidates(pool, track_key: str, candidate_track_keys):
 
 @router.post("/next-track")
 async def next_track(request: TrackRequest):
-    """유사곡 — 현재 곡과 가장 가까운 상위 4개 반환"""
+    """유사곡 — 현재 곡과 가까운 상위 20% 중 랜덤 4개 반환"""
     pool = await get_db_pool()
     scored = await _fetch_candidates(pool, request.track_key, request.candidate_track_keys)
     scored.sort(key=lambda x: x[0], reverse=True)  # 가까운 순
-    tracks = [{k: v for k, v in dict(r).items() if k != "emb"} for _, r in scored[:RETRY_COUNT]]
+    top20_count = max(RETRY_COUNT, int(len(scored) * 0.2))
+    pool20 = [r for _, r in scored[:top20_count]]
+    random.shuffle(pool20)
+    tracks = [{k: v for k, v in dict(r).items() if k != "emb"} for r in pool20[:RETRY_COUNT]]
     return {"tracks": tracks}
 
 
