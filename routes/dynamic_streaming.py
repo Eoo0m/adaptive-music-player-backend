@@ -26,12 +26,7 @@ TRACK_FIELDS = """
 RETRY_COUNT = 4
 
 
-class NextTrackRequest(BaseModel):
-    track_key: str
-    candidate_track_keys: Optional[list] = None
-
-
-class DynamicNextRequest(BaseModel):
+class TrackRequest(BaseModel):
     track_key: str
     candidate_track_keys: Optional[list] = None
 
@@ -88,27 +83,23 @@ async def _fetch_candidates(pool, track_key: str, candidate_track_keys):
 
 
 @router.post("/next-track")
-async def next_track(request: NextTrackRequest):
+async def next_track(request: TrackRequest):
     """유사곡 — 현재 곡과 가장 가까운 상위 4개 반환"""
     pool = await get_db_pool()
     scored = await _fetch_candidates(pool, request.track_key, request.candidate_track_keys)
-
     scored.sort(key=lambda x: x[0], reverse=True)  # 가까운 순
     tracks = [{k: v for k, v in dict(r).items() if k != "emb"} for _, r in scored[:RETRY_COUNT]]
-
-    return {"tracks": tracks, "mode": "similar"}
+    return {"tracks": tracks}
 
 
 @router.post("/dynamic-next")
-async def dynamic_next(request: DynamicNextRequest):
+async def dynamic_next(request: TrackRequest):
     """다른 곡 — 현재 곡과 거리 먼 상위 30% 중 랜덤 4개 반환"""
     pool = await get_db_pool()
     scored = await _fetch_candidates(pool, request.track_key, request.candidate_track_keys)
-
     scored.sort(key=lambda x: x[0])  # 먼 순
     top30_count = max(RETRY_COUNT, int(len(scored) * 0.3))
     pool30 = [r for _, r in scored[:top30_count]]
     random.shuffle(pool30)
     tracks = [{k: v for k, v in dict(r).items() if k != "emb"} for r in pool30[:RETRY_COUNT]]
-
-    return {"tracks": tracks, "mode": "distant"}
+    return {"tracks": tracks}
