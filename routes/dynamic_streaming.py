@@ -1,9 +1,8 @@
 """
 Dynamic Streaming API
 
-/dynamic-next:
-  - listened_half=True  → 가장 가까운 트랙 상위 4개 반환
-  - listened_half=False → 전체 후보 중 cosine 거리 먼 상위 30% → 랜덤 4개 반환
+/next-track    → 현재 곡과 가장 가까운 유사곡 4개 반환
+/dynamic-next  → 현재 곡과 거리 먼 상위 30% 중 랜덤 4개 반환 (다른 곡)
 """
 
 import logging
@@ -27,40 +26,25 @@ TRACK_FIELDS = """
 RETRY_COUNT = 4
 
 
-class DynamicNextRequest(BaseModel):
-    track_key: str
-    listened_half: bool = False
-    candidate_track_keys: Optional[list] = None
-
-
 class NextTrackRequest(BaseModel):
     track_key: str
     candidate_track_keys: Optional[list] = None
 
 
-@router.post("/next-track")
-async def next_track(request: NextTrackRequest):
-    """단순 유사곡 — listened_half=True와 동일, 미니플레이어 일반 다음곡 버튼용"""
-    return await dynamic_next(DynamicNextRequest(
-        track_key=request.track_key,
-        listened_half=True,
-        candidate_track_keys=request.candidate_track_keys,
-    ))
+class DynamicNextRequest(BaseModel):
+    track_key: str
+    candidate_track_keys: Optional[list] = None
 
 
-@router.post("/dynamic-next")
-async def dynamic_next(request: DynamicNextRequest):
-    """무조건 다른 곡 반환 — 현재 곡과 거리 먼 상위 30% 중 랜덤"""
-    pool = await get_db_pool()
-
+async def _fetch_candidates(pool, track_key: str, candidate_track_keys):
+    """현재 곡 임베딩 + 후보 곡 임베딩 조회"""
     row = await pool.fetchrow(
         """
         SELECT v.embedding::text
         FROM track_vectors_simgcl v
-        JOIN tracks t ON v.track_key = t.track_key
-        WHERE t.track_key = $1
+        WHERE v.track_key = $1
         """,
-        request.track_key,
+        track_key,
     )
     if not row:
         raise HTTPException(status_code=404, detail="트랙을 찾을 수 없습니다")
@@ -68,7 +52,7 @@ async def dynamic_next(request: DynamicNextRequest):
     emb = np.array(eval(row["embedding"]), dtype=np.float32)
     emb_norm = emb / (np.linalg.norm(emb) + 1e-8)
 
-    if request.candidate_track_keys:
+    if candidate_track_keys:
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}, v.embedding::text AS emb
@@ -77,7 +61,7 @@ async def dynamic_next(request: DynamicNextRequest):
             WHERE t.track_key != $1
             AND t.track_key = ANY($2::text[])
             """,
-            request.track_key, request.candidate_track_keys,
+            track_key, candidate_track_keys,
         )
     else:
         rows = await pool.fetch(
@@ -87,7 +71,7 @@ async def dynamic_next(request: DynamicNextRequest):
             JOIN tracks t ON v.track_key = t.track_key
             WHERE t.track_key != $1
             """,
-            request.track_key,
+            track_key,
         )
 
     if not rows:
@@ -100,13 +84,31 @@ async def dynamic_next(request: DynamicNextRequest):
         sim = float(np.dot(emb_norm, e_norm))
         scored.append((sim, r))
 
+    return scored
+
+
+@router.post("/next-track")
+async def next_track(request: NextTrackRequest):
+    """유사곡 — 현재 곡과 가장 가까운 상위 4개 반환"""
+    pool = await get_db_pool()
+    scored = await _fetch_candidates(pool, request.track_key, request.candidate_track_keys)
+
+    scored.sort(key=lambda x: x[0], reverse=True)  # 가까운 순
+    tracks = [{k: v for k, v in dict(r).items() if k != "emb"} for _, r in scored[:RETRY_COUNT]]
+
+    return {"tracks": tracks, "mode": "similar"}
+
+
+@router.post("/dynamic-next")
+async def dynamic_next(request: DynamicNextRequest):
+    """다른 곡 — 현재 곡과 거리 먼 상위 30% 중 랜덤 4개 반환"""
+    pool = await get_db_pool()
+    scored = await _fetch_candidates(pool, request.track_key, request.candidate_track_keys)
+
     scored.sort(key=lambda x: x[0])  # 먼 순
     top30_count = max(RETRY_COUNT, int(len(scored) * 0.3))
     pool30 = [r for _, r in scored[:top30_count]]
     random.shuffle(pool30)
     tracks = [{k: v for k, v in dict(r).items() if k != "emb"} for r in pool30[:RETRY_COUNT]]
-
-    if not tracks:
-        raise HTTPException(status_code=404, detail="다음 트랙을 찾을 수 없습니다")
 
     return {"tracks": tracks, "mode": "distant"}
