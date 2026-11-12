@@ -47,8 +47,8 @@ async def music_map(request: MusicMapRequest):
     """
     if len(request.track_keys) < 1:
         raise HTTPException(status_code=400, detail="트랙을 1개 이상 입력해주세요")
-    if len(request.track_keys) > 30:
-        raise HTTPException(status_code=400, detail="트랙은 최대 30개까지 입력 가능합니다")
+    if len(request.track_keys) > 40:
+        raise HTTPException(status_code=400, detail="트랙은 최대 40개까지 입력 가능합니다")
 
     t0 = time.perf_counter()
     def elapsed(label: str):
