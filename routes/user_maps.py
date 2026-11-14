@@ -23,6 +23,7 @@ router = APIRouter()
 class MapTrackData(BaseModel):
     track_key: str
     track_name: str
+    title: Optional[str] = None
     artist: str
     cover_image_url: Optional[str] = None
     apple_music_id: Optional[str] = None
