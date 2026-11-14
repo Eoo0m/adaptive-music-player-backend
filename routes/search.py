@@ -230,12 +230,22 @@ async def search_by_keyword(request: KeywordSearchRequest):
         # 타이밍 측정
         timings = {}
 
-        # 1. OpenAI 임베딩
+        # 1. OpenAI 임베딩 (keyword_embeddings 캐시 우선)
         t_openai = now_ms()
-        keyword_embedding = get_openai_embedding_with_retry(request.keyword)
-        openai_ms = elapsed_ms(t_openai)
-        timings["openai"] = openai_ms / 1000
-        logger.info(f"[{request_id}] /search-by-keyword openai={openai_ms:.1f}ms")
+        pool = await get_db_pool()
+        cached = await pool.fetchrow(
+            "SELECT embedding::text FROM keyword_embeddings WHERE lower(keyword) = lower($1) LIMIT 1",
+            request.keyword.strip()
+        )
+        if cached:
+            keyword_embedding = json_module.loads(cached["embedding"])
+            timings["openai"] = 0
+            logger.info(f"[{request_id}] /search-by-keyword openai=CACHE_HIT")
+        else:
+            keyword_embedding = get_openai_embedding_with_retry(request.keyword)
+            openai_ms = elapsed_ms(t_openai)
+            timings["openai"] = openai_ms / 1000
+            logger.info(f"[{request_id}] /search-by-keyword openai={openai_ms:.1f}ms")
 
         # 2. CLIP projection (텍스트 → 512차원 트랙 임베딩 공간)
         t_proj = now_ms()
@@ -249,7 +259,6 @@ async def search_by_keyword(request: KeywordSearchRequest):
 
         # 3. MMR 후보 가져오기 (raw SQL)
         t_db = now_ms()
-        pool = await get_db_pool()
         rows = await pool.fetch(
             """
             SELECT
