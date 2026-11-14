@@ -6,9 +6,8 @@
   2. 저장곡 <= 5개면 스킵
   3. Global Pooling 벡터 계산 (전체 임베딩 L2-정규화 평균)
   4. Ward Hierarchical Clustering 수행
-  5. K=2~5 각각에 대해 Silhouette 점수 평가 → 최고 K 선택
-  6. 최소 클러스터 크기(MIN_CLUSTER_SIZE) 미달 클러스터는 가장 가까운 클러스터에 병합
-  7. 각 클러스터의 Medoid 선택 → user_interest_clusters upsert
+  5. 거리 임계값 ALPHA로 클러스터 수 자동 결정
+  6. 각 클러스터의 Medoid 선택 → user_interest_clusters upsert
 """
 
 import json
@@ -16,7 +15,6 @@ import logging
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
 from scipy.cluster.hierarchy import linkage, fcluster
-from sklearn.metrics import silhouette_score
 
 from database import get_db_pool
 from routes.auth import get_current_user
@@ -27,61 +25,7 @@ router = APIRouter()
 
 MIN_TRACKS_FOR_CLUSTERING = 6   # 5개 이하면 스킵
 MAX_FAVORITES = 50
-K_MIN, K_MAX = 2, 5
-MIN_CLUSTER_SIZE = 3            # 이보다 작은 클러스터는 병합
-
-
-def _best_k(embeddings: np.ndarray, Z: np.ndarray) -> int:
-    """
-    K=2~5에 대해 Silhouette 점수 계산 → 최고 K 반환.
-    n이 작아서 K를 만들 수 없으면 가능한 최대 K로 클램프.
-    """
-    n = len(embeddings)
-    best_k, best_score = K_MIN, -1.0
-
-    for k in range(K_MIN, min(K_MAX, n - 1) + 1):
-        labels = fcluster(Z, k, criterion="maxclust")
-        # 클러스터가 실제로 k개 미만으로 나뉘면 스킵
-        if len(np.unique(labels)) < k:
-            continue
-        score = silhouette_score(embeddings, labels, metric="euclidean")
-        if score > best_score:
-            best_score, best_k = score, k
-
-    return best_k
-
-
-def _merge_small_clusters(
-    embeddings: np.ndarray,
-    track_keys: list[str],
-    labels: np.ndarray,
-    min_size: int,
-) -> np.ndarray:
-    """
-    min_size 미달 클러스터의 각 포인트를 가장 가까운 대형 클러스터 centroid로 재배정.
-    반복하여 모든 클러스터가 min_size 이상이 될 때까지 수행.
-    """
-    labels = labels.copy()
-    for _ in range(10):  # 최대 10회 반복 (무한루프 방지)
-        unique, counts = np.unique(labels, return_counts=True)
-        small = unique[counts < min_size]
-        large = unique[counts >= min_size]
-        if len(small) == 0 or len(large) == 0:
-            break
-
-        # 대형 클러스터 centroid
-        centroids = np.array([
-            embeddings[labels == c].mean(axis=0) for c in large
-        ])
-
-        for c in small:
-            for idx in np.where(labels == c)[0]:
-                dists = np.linalg.norm(centroids - embeddings[idx], axis=1)
-                labels[idx] = large[int(np.argmin(dists))]
-
-    # label을 1부터 연속으로 재번호
-    mapping = {old: new for new, old in enumerate(np.unique(labels), start=1)}
-    return np.array([mapping[l] for l in labels])
+ALPHA = 2.0                     # Ward 거리 임계값: 이 거리 이상이면 별도 클러스터
 
 
 def _global_pooling(embeddings: np.ndarray) -> list:
@@ -101,7 +45,7 @@ def _global_pooling(embeddings: np.ndarray) -> list:
 
 def _compute_clusters(embeddings: np.ndarray, track_keys: list[str]):
     """
-    Ward clustering + Silhouette K 선택 + 최소 크기 필터 + Medoid + Global Pooling.
+    Ward clustering + 거리 임계값 ALPHA로 K 자동 결정 + Medoid + Global Pooling.
     Returns: (k, medoid_vectors, medoid_track_keys, global_vector)
     """
     n = len(embeddings)
@@ -111,11 +55,7 @@ def _compute_clusters(embeddings: np.ndarray, track_keys: list[str]):
         return 1, embeddings.tolist(), track_keys, global_vec
 
     Z = linkage(embeddings, method="ward", metric="euclidean")
-    k = _best_k(embeddings, Z)
-    labels = fcluster(Z, k, criterion="maxclust")
-
-    # 최소 크기 필터
-    labels = _merge_small_clusters(embeddings, track_keys, labels, MIN_CLUSTER_SIZE)
+    labels = fcluster(Z, ALPHA, criterion="distance")
     k = len(np.unique(labels))
 
     medoid_vectors = []
