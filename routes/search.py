@@ -88,7 +88,7 @@ async def search_songs(request: SearchRequest):
     try:
         rows = await search_tracks_by_title_raw(
             query_text=request.query,
-            match_count=10
+            match_count=20
         )
 
         # 결과 포맷 변환
