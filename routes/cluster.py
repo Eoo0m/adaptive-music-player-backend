@@ -40,19 +40,29 @@ def _auto_k(Z: np.ndarray) -> int:
     if max_k <= K_MIN:
         return K_MIN
 
-    # 마지막 (max_k - 1)개 병합 거리 — 큰 값일수록 나중에 합쳐진 것
-    # Z는 오름차순이므로 뒤에서부터 max_k-1개
-    distances = Z[-(max_k - 1):, 2]   # shape: (max_k-1,)
-    # 차분: 거리 변화량
-    diffs = np.diff(distances)         # shape: (max_k-2,)
+    # 마지막 max_k개 병합 거리 — 큰 값일수록 나중에 합쳐진 것
+    distances = Z[-max_k:, 2]          # shape: (max_k,)
 
-    if len(diffs) == 0:
+    if len(distances) < 2:
         return K_MIN
 
-    # 가장 큰 변화량 위치 → 그 직후가 elbow
-    elbow_idx = int(np.argmax(diffs))
-    # elbow_idx=0이면 2개 클러스터가 최적, elbow_idx=1이면 3개 ...
-    k = max_k - elbow_idx - 1
+    # distances[i] 는 K=(max_k - i) 클러스터에서의 마지막 병합 거리
+    # diffs[i] 가 크면 K=(max_k - i) → K=(max_k - i - 1) 병합이 큰 도약
+    # → K=(max_k - i) 에서 멈추는 것이 적절
+    diffs = np.diff(distances)                      # shape: (max_k - 1,)
+
+    # 전체 거리 범위 대비 15% 이상인 점프를 "유의미한 분리"로 간주
+    dist_range = distances[-1] - distances[0] + 1e-8
+    threshold = dist_range * 0.15
+    jump_indices = np.where(diffs >= threshold)[0]  # diffs[i] >= threshold
+
+    if len(jump_indices) == 0:
+        return K_MIN
+
+    # 유의미한 점프 중 가장 첫 번째(인덱스 작은 것) → 더 세분화된 K 선택
+    # (마지막 jump는 K=2→K=1로 합치는 가장 큰 병합이므로 제외)
+    elbow_idx = int(jump_indices[0])                # diffs[elbow_idx] 가 첫 유의미한 점프
+    k = max_k - elbow_idx                           # 이 점프 직전 K
     return max(K_MIN, min(K_MAX, k))
 
 
