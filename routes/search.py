@@ -31,7 +31,7 @@ class KeywordSearchRequest(BaseModel):
 
 class RecommendRequest(BaseModel):
     track_key: str
-    num_recommendations: Optional[int] = 30
+    num_recommendations: Optional[int] = 42
 
 
 # ============== 제목 검색 헬퍼 ==============
@@ -158,7 +158,7 @@ async def find_similar_tracks(request: RecommendRequest):
             """,
             request.track_key,
             query_row["embedding"],
-            50,
+            60,
         )
         logger.info(
             f"[{request_id}] /find-similar-tracks vector_search="

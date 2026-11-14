@@ -35,9 +35,9 @@ router = APIRouter()
 
 class SmartSearchRequest(BaseModel):
     query: str
-    entity_limit: Optional[int] = 10
-    mood_top_k: Optional[int] = 24
-    mood_candidates: Optional[int] = 100
+    entity_limit: Optional[int] = 20
+    mood_top_k: Optional[int] = 40
+    mood_candidates: Optional[int] = 200
     mmr_lambda: Optional[float] = 0.7
 
 
