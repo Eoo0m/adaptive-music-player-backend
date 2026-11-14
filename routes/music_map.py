@@ -4,11 +4,13 @@ import time
 from collections import defaultdict
 
 import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 
 from database import get_db_pool
+from routes.auth import get_current_user
+from routes.recommend import _dual_attention_scores, _cosine_sim, DA_WEIGHT, GLOBAL_WEIGHT
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -39,11 +41,12 @@ async def top_tracks(limit: int = 10):
 
 
 @router.post("/music-map")
-async def music_map(request: MusicMapRequest):
+async def music_map(request: MusicMapRequest, user: dict = Depends(get_current_user)):
     """
-    1. 시드만 UMAP → 격자 셀 확정
-    2. 필은 소속 시드 셀 주변 BFS로 빈 칸 배치
-    3. 중심으로 당기기로 뭉치기
+    1. 시드만 MDS → 격자 셀 확정
+    2. 필은 interest profile 기반 Dual Attention + Global Pooling 스코어로 선정
+       (캐싱된 interest profile 없으면 ANN fallback)
+    3. BFS로 시드 주변 배치 + 중심으로 당기기
     """
     if len(request.track_keys) < 1:
         raise HTTPException(status_code=400, detail="트랙을 1개 이상 입력해주세요")
@@ -82,11 +85,24 @@ async def music_map(request: MusicMapRequest):
     }
     row_map = {r["track_key"]: r for r in seed_rows}
 
-    # 2. seed별 fill LATERAL 단일 쿼리
-    fill_per_seed = max(request.fill_per_seed, 5)
-    exclude_base = list(seed_set)
+    # 2. interest profile 조회 (없으면 None)
+    cluster_row = await pool.fetchrow(
+        "SELECT k, medoids, global_embedding FROM user_interest_clusters WHERE user_id = $1::uuid",
+        user["user_id"]
+    )
+    has_profile = cluster_row is not None and cluster_row["global_embedding"] is not None
+    if has_profile:
+        medoids_raw = json_module.loads(cluster_row["medoids"]) if isinstance(cluster_row["medoids"], str) else cluster_row["medoids"]
+        medoids = np.array(medoids_raw, dtype=np.float32)
+        global_raw = cluster_row["global_embedding"]
+        if isinstance(global_raw, str): global_raw = json_module.loads(global_raw)
+        global_vec = np.array(global_raw, dtype=np.float32)
+    elapsed("2. interest profile 조회")
 
-    # seed 벡터 배열을 PostgreSQL unnest로 전달
+    # 3. seed별 fill ANN 후보 조회 (interest profile 있으면 더 많이 뽑아서 리랭킹)
+    fill_per_seed = max(request.fill_per_seed, 5)
+    ann_candidate_per_seed = fill_per_seed * 5 if has_profile else fill_per_seed
+    exclude_base = list(seed_set)
     seed_emb_strs = [str(seed_embs[k].tolist()) for k in seed_keys_found]
 
     fill_rows = await pool.fetch(
@@ -98,13 +114,19 @@ async def music_map(request: MusicMapRequest):
         SELECT DISTINCT ON (seeds.seed_key, t.track_key)
                seeds.seed_key::text,
                t.track_key::text, t.title::text, t.artist::text, t.album::text,
-               t.cover_image_url::text, t.playlist_count, t.apple_music_id::text
+               t.cover_image_url::text, t.playlist_count, t.apple_music_id::text,
+               te.embedding,
+               (1 - (v.embedding <=> seeds.seed_emb))::float AS ann_sim
         FROM seeds
         CROSS JOIN LATERAL (
-            SELECT t.track_key, t.title, t.artist, t.album, t.cover_image_url, t.playlist_count, t.apple_music_id
+            SELECT t.track_key, t.title, t.artist, t.album, t.cover_image_url, t.playlist_count, t.apple_music_id,
+                   te.embedding,
+                   v.embedding <=> seeds.seed_emb AS dist
             FROM track_vectors_simgcl v
             JOIN tracks t ON v.track_key = t.track_key
+            JOIN track_embeddings te ON v.track_key = te.track_key
             WHERE v.track_key != ALL($3::text[])
+              AND te.embedding IS NOT NULL
             ORDER BY v.embedding <=> seeds.seed_emb
             LIMIT $4
         ) t
@@ -112,23 +134,55 @@ async def music_map(request: MusicMapRequest):
         seed_keys_found,
         seed_emb_strs,
         exclude_base,
-        fill_per_seed,
+        ann_candidate_per_seed,
     )
 
-    seen = set(seed_set)
-    fill_source_seed = {}  # track_key → seed_key
-    fill_by_seed = defaultdict(list)  # seed_key → [row, ...]
-
+    # 시드별 후보 그룹화
+    candidates_by_seed = defaultdict(list)
+    seen_global = set(seed_set)
     for r in fill_rows:
         tk = r["track_key"]
         sk = r["seed_key"]
-        if tk not in seen:
-            seen.add(tk)
-            fill_by_seed[sk].append(r)
-            fill_source_seed[tk] = sk
-            row_map[tk] = r
+        if tk not in seen_global:
+            candidates_by_seed[sk].append(r)
+        seen_global.add(tk)
 
-    elapsed("2. fill 조회")
+    # interest profile 있으면 Dual Attention + Global 리랭킹, 없으면 ANN 순서 그대로
+    seen = set(seed_set)
+    fill_source_seed = {}
+    fill_by_seed = defaultdict(list)
+
+    for sk in seed_keys_found:
+        cands = candidates_by_seed[sk]
+        if not cands:
+            continue
+
+        if has_profile:
+            seed_emb = seed_embs[sk]
+            cand_embs_arr = []
+            for r in cands:
+                emb = r["embedding"]
+                if isinstance(emb, str): emb = json_module.loads(emb)
+                cand_embs_arr.append(emb)
+            cand_embs_arr = np.array(cand_embs_arr, dtype=np.float32)
+
+            da_scores = _dual_attention_scores(seed_emb, cand_embs_arr, medoids)
+            global_scores = _cosine_sim(global_vec, cand_embs_arr)
+            final_scores = DA_WEIGHT * da_scores + GLOBAL_WEIGHT * global_scores
+            order = np.argsort(-final_scores)
+            ranked = [cands[i] for i in order]
+        else:
+            ranked = cands  # ANN 순서 그대로
+
+        for r in ranked[:fill_per_seed]:
+            tk = r["track_key"]
+            if tk not in seen:
+                seen.add(tk)
+                fill_by_seed[sk].append(r)
+                fill_source_seed[tk] = sk
+                row_map[tk] = r
+
+    elapsed("3. fill 조회 + 리랭킹")
 
     seed_meta_map = {
         r["track_key"]: {"title": r["title"], "artist": r["artist"]}
@@ -153,7 +207,7 @@ async def music_map(request: MusicMapRequest):
             coords[:, dim] = (coords[:, dim] - lo) / (hi - lo + 1e-8)
         seed_coords = {k: tuple(coords[i]) for i, k in enumerate(seed_keys_found)}
 
-    elapsed("3. MDS (시드만)")
+    elapsed("4. MDS (시드만)")
 
     # 4. 시드 UMAP 좌표 → 격자 스냅
     # 시드 간 간격을 fill 수에 비례해 여유있게 확보
@@ -200,7 +254,7 @@ async def music_map(request: MusicMapRequest):
             occupied[pos] = sk
             final_cells[sk] = pos
 
-    elapsed("4. 시드 격자 배치")
+    elapsed("5. 시드 격자 배치")
 
     # 5. fill을 소속 시드 주변 BFS로 배치
     # 시드와 유사도 높은 fill부터 배치 (가까운 셀 먼저 차지)
@@ -241,7 +295,7 @@ async def music_map(request: MusicMapRequest):
                 occupied[(max_c, 0)] = tk
                 final_cells[tk] = (max_c, 0)
 
-    elapsed("5. fill 시드 주변 배치")
+    elapsed("6. fill 시드 주변 배치")
 
     # 6. 빈 행·열 압축
     used_cols = sorted(set(c for c, r in final_cells.values()))
@@ -252,7 +306,7 @@ async def music_map(request: MusicMapRequest):
         c, r = final_cells[tk]
         final_cells[tk] = (col_remap[c], row_remap[r])
 
-    elapsed("6. 빈 행·열 압축")
+    elapsed("7. 빈 행·열 압축")
 
     # 7. 중심으로 당기기
     for iteration in range(30):
@@ -296,7 +350,7 @@ async def music_map(request: MusicMapRequest):
             logger.info(f"  중심 압축 수렴: {iteration + 1}회")
             break
 
-    elapsed("7. 중심으로 당기기")
+    elapsed("8. 중심으로 당기기")
 
     # 8. 결과 구성
     all_keys = list(seed_keys_found) + [tk for tk in fill_source_seed]
@@ -328,7 +382,7 @@ async def music_map(request: MusicMapRequest):
             "y": float(grow),
         })
 
-    elapsed("8. 결과 구성")
+    elapsed("9. 결과 구성")
     logger.info(
         f"music-map: {n_seeds} seeds, {len(fill_source_seed)} fills → total={len(tracks)}"
     )
