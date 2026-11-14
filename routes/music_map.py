@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 from database import get_db_pool
-from routes.auth import get_current_user
+from routes.auth import get_optional_user
 from routes.recommend import _dual_attention_scores, _cosine_sim, DA_WEIGHT, GLOBAL_WEIGHT
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ async def top_tracks(limit: int = 10):
 
 
 @router.post("/music-map")
-async def music_map(request: MusicMapRequest, user: dict = Depends(get_current_user)):
+async def music_map(request: MusicMapRequest, user: dict | None = Depends(get_optional_user)):
     """
     1. 시드만 MDS → 격자 셀 확정
     2. 필은 interest profile 기반 Dual Attention + Global Pooling 스코어로 선정
@@ -86,10 +86,12 @@ async def music_map(request: MusicMapRequest, user: dict = Depends(get_current_u
     row_map = {r["track_key"]: r for r in seed_rows}
 
     # 2. interest profile 조회 (없으면 None)
-    cluster_row = await pool.fetchrow(
-        "SELECT k, medoids, global_embedding FROM user_interest_clusters WHERE user_id = $1::uuid",
-        user["user_id"]
-    )
+    cluster_row = None
+    if user:
+        cluster_row = await pool.fetchrow(
+            "SELECT k, medoids, global_embedding FROM user_interest_clusters WHERE user_id = $1::uuid",
+            user["user_id"]
+        )
     has_profile = cluster_row is not None and cluster_row["global_embedding"] is not None
     if has_profile:
         medoids_raw = json_module.loads(cluster_row["medoids"]) if isinstance(cluster_row["medoids"], str) else cluster_row["medoids"]
