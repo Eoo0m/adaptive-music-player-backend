@@ -37,7 +37,7 @@ class SmartSearchRequest(BaseModel):
     query: str
     entity_limit: Optional[int] = 20
     mood_top_k: Optional[int] = 40
-    mood_candidates: Optional[int] = 200
+    mood_candidates: Optional[int] = 100
     mmr_lambda: Optional[float] = 0.7
 
 
