@@ -5,9 +5,9 @@
   1. 유저 최근 저장 50곡의 SimGCL 64d 임베딩 조회
   2. 저장곡 <= 5개면 스킵
   3. Ward Hierarchical Clustering 수행
-  4. 병합 거리 변화량(elbow) 기준으로 K 자동 결정 (1~5)
-  5. 각 클러스터의 Medoid (실제 트랙 벡터 중 클러스터 내 평균과 가장 가까운 것) 선택
-  6. user_interest_clusters 테이블에 upsert
+  4. K=2~5 각각에 대해 Silhouette 점수 평가 → 최고 K 선택
+  5. 최소 클러스터 크기(MIN_CLUSTER_SIZE) 미달 클러스터는 가장 가까운 클러스터에 병합
+  6. 각 클러스터의 Medoid 선택 → user_interest_clusters upsert
 """
 
 import json
@@ -15,7 +15,7 @@ import logging
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
 from scipy.cluster.hierarchy import linkage, fcluster
-from scipy.spatial.distance import pdist, squareform
+from sklearn.metrics import silhouette_score
 
 from database import get_db_pool
 from routes.auth import get_current_user
@@ -26,82 +26,96 @@ router = APIRouter()
 
 MIN_TRACKS_FOR_CLUSTERING = 6   # 5개 이하면 스킵
 MAX_FAVORITES = 50
-K_MIN, K_MAX = 1, 5
+K_MIN, K_MAX = 2, 5
+MIN_CLUSTER_SIZE = 3            # 이보다 작은 클러스터는 병합
 
 
-def _auto_k(Z: np.ndarray) -> int:
+def _best_k(embeddings: np.ndarray, Z: np.ndarray) -> int:
     """
-    Ward linkage matrix Z에서 elbow 방식으로 K 결정.
-    병합 거리(Z[:,2])의 차분이 최대인 지점을 기준으로 K 결정.
-    K_MIN ~ K_MAX 범위 내로 클램프.
+    K=2~5에 대해 Silhouette 점수 계산 → 최고 K 반환.
+    n이 작아서 K를 만들 수 없으면 가능한 최대 K로 클램프.
     """
-    n = Z.shape[0] + 1          # 원본 데이터 포인트 수
-    max_k = min(K_MAX, n - 1)
-    if max_k <= K_MIN:
-        return K_MIN
+    n = len(embeddings)
+    best_k, best_score = K_MIN, -1.0
 
-    # 마지막 max_k개 병합 거리 — 큰 값일수록 나중에 합쳐진 것
-    distances = Z[-max_k:, 2]          # shape: (max_k,)
+    for k in range(K_MIN, min(K_MAX, n - 1) + 1):
+        labels = fcluster(Z, k, criterion="maxclust")
+        # 클러스터가 실제로 k개 미만으로 나뉘면 스킵
+        if len(np.unique(labels)) < k:
+            continue
+        score = silhouette_score(embeddings, labels, metric="euclidean")
+        if score > best_score:
+            best_score, best_k = score, k
 
-    if len(distances) < 2:
-        return K_MIN
+    return best_k
 
-    # distances[i] 는 K=(max_k - i) 클러스터에서의 마지막 병합 거리
-    # diffs[i] 가 크면 K=(max_k - i) → K=(max_k - i - 1) 병합이 큰 도약
-    # → K=(max_k - i) 에서 멈추는 것이 적절
-    diffs = np.diff(distances)                      # shape: (max_k - 1,)
 
-    # 전체 거리 범위 대비 15% 이상인 점프를 "유의미한 분리"로 간주
-    dist_range = distances[-1] - distances[0] + 1e-8
-    threshold = dist_range * 0.15
-    jump_indices = np.where(diffs >= threshold)[0]  # diffs[i] >= threshold
+def _merge_small_clusters(
+    embeddings: np.ndarray,
+    track_keys: list[str],
+    labels: np.ndarray,
+    min_size: int,
+) -> np.ndarray:
+    """
+    min_size 미달 클러스터의 각 포인트를 가장 가까운 대형 클러스터 centroid로 재배정.
+    반복하여 모든 클러스터가 min_size 이상이 될 때까지 수행.
+    """
+    labels = labels.copy()
+    for _ in range(10):  # 최대 10회 반복 (무한루프 방지)
+        unique, counts = np.unique(labels, return_counts=True)
+        small = unique[counts < min_size]
+        large = unique[counts >= min_size]
+        if len(small) == 0 or len(large) == 0:
+            break
 
-    if len(jump_indices) == 0:
-        return K_MIN
+        # 대형 클러스터 centroid
+        centroids = np.array([
+            embeddings[labels == c].mean(axis=0) for c in large
+        ])
 
-    # 유의미한 점프 중 가장 첫 번째(인덱스 작은 것) → 더 세분화된 K 선택
-    # (마지막 jump는 K=2→K=1로 합치는 가장 큰 병합이므로 제외)
-    elbow_idx = int(jump_indices[0])                # diffs[elbow_idx] 가 첫 유의미한 점프
-    k = max_k - elbow_idx                           # 이 점프 직전 K
-    return max(K_MIN, min(K_MAX, k))
+        for c in small:
+            for idx in np.where(labels == c)[0]:
+                dists = np.linalg.norm(centroids - embeddings[idx], axis=1)
+                labels[idx] = large[int(np.argmin(dists))]
+
+    # label을 1부터 연속으로 재번호
+    mapping = {old: new for new, old in enumerate(np.unique(labels), start=1)}
+    return np.array([mapping[l] for l in labels])
 
 
 def _compute_clusters(embeddings: np.ndarray, track_keys: list[str]):
     """
-    Ward clustering + Medoid 계산.
+    Ward clustering + Silhouette K 선택 + 최소 크기 필터 + Medoid.
     Returns: (k, medoid_vectors, medoid_track_keys)
     """
     n = len(embeddings)
 
-    # 단일 곡이면 그 자체가 클러스터
     if n == 1:
         return 1, embeddings.tolist(), track_keys
 
-    # Ward linkage (condensed distance matrix 기반)
     Z = linkage(embeddings, method="ward", metric="euclidean")
-    k = _auto_k(Z)
+    k = _best_k(embeddings, Z)
+    labels = fcluster(Z, k, criterion="maxclust")
 
-    # K개 클러스터로 분할 (1-based label)
-    labels = fcluster(Z, k, criterion="maxclust")  # shape: (n,)
+    # 최소 크기 필터
+    labels = _merge_small_clusters(embeddings, track_keys, labels, MIN_CLUSTER_SIZE)
+    k = len(np.unique(labels))
 
     medoid_vectors = []
     medoid_keys = []
 
-    for c in range(1, k + 1):
+    for c in np.unique(labels):
         indices = np.where(labels == c)[0]
         cluster_embs = embeddings[indices]
 
-        # Medoid: 클러스터 내 평균과 cosine distance 가장 가까운 실제 벡터
+        # Medoid: 클러스터 내 평균에 cosine similarity 가장 가까운 실제 벡터
         centroid = cluster_embs.mean(axis=0)
         norm = np.linalg.norm(centroid)
         if norm > 0:
             centroid = centroid / norm
-
-        # 각 멤버와 centroid 간 cosine similarity
         norms = np.linalg.norm(cluster_embs, axis=1, keepdims=True)
         norms = np.where(norms == 0, 1e-8, norms)
-        normed = cluster_embs / norms
-        sims = normed @ centroid
+        sims = (cluster_embs / norms) @ centroid
         medoid_idx = int(np.argmax(sims))
 
         medoid_vectors.append(cluster_embs[medoid_idx].tolist())
