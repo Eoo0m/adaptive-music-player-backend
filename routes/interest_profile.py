@@ -4,10 +4,11 @@
 알고리즘:
   1. 유저 최근 저장 50곡의 SimGCL 64d 임베딩 조회
   2. 저장곡 <= 5개면 스킵
-  3. Ward Hierarchical Clustering 수행
-  4. K=2~5 각각에 대해 Silhouette 점수 평가 → 최고 K 선택
-  5. 최소 클러스터 크기(MIN_CLUSTER_SIZE) 미달 클러스터는 가장 가까운 클러스터에 병합
-  6. 각 클러스터의 Medoid 선택 → user_interest_clusters upsert
+  3. Global Pooling 벡터 계산 (전체 임베딩 L2-정규화 평균)
+  4. Ward Hierarchical Clustering 수행
+  5. K=2~5 각각에 대해 Silhouette 점수 평가 → 최고 K 선택
+  6. 최소 클러스터 크기(MIN_CLUSTER_SIZE) 미달 클러스터는 가장 가까운 클러스터에 병합
+  7. 각 클러스터의 Medoid 선택 → user_interest_clusters upsert
 """
 
 import json
@@ -83,15 +84,31 @@ def _merge_small_clusters(
     return np.array([mapping[l] for l in labels])
 
 
+def _global_pooling(embeddings: np.ndarray) -> list:
+    """
+    전체 임베딩의 L2-정규화 평균 (Global Pooling 벡터).
+    각 벡터를 먼저 L2 정규화한 뒤 평균 → 다시 L2 정규화.
+    """
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1e-8, norms)
+    normed = embeddings / norms
+    pooled = normed.mean(axis=0)
+    p_norm = np.linalg.norm(pooled)
+    if p_norm > 0:
+        pooled = pooled / p_norm
+    return pooled.tolist()
+
+
 def _compute_clusters(embeddings: np.ndarray, track_keys: list[str]):
     """
-    Ward clustering + Silhouette K 선택 + 최소 크기 필터 + Medoid.
-    Returns: (k, medoid_vectors, medoid_track_keys)
+    Ward clustering + Silhouette K 선택 + 최소 크기 필터 + Medoid + Global Pooling.
+    Returns: (k, medoid_vectors, medoid_track_keys, global_vector)
     """
     n = len(embeddings)
+    global_vec = _global_pooling(embeddings)
 
     if n == 1:
-        return 1, embeddings.tolist(), track_keys
+        return 1, embeddings.tolist(), track_keys, global_vec
 
     Z = linkage(embeddings, method="ward", metric="euclidean")
     k = _best_k(embeddings, Z)
@@ -121,7 +138,7 @@ def _compute_clusters(embeddings: np.ndarray, track_keys: list[str]):
         medoid_vectors.append(cluster_embs[medoid_idx].tolist())
         medoid_keys.append(track_keys[indices[medoid_idx]])
 
-    return k, medoid_vectors, medoid_keys
+    return k, medoid_vectors, medoid_keys, global_vec
 
 
 async def recompute_clusters(user_id: str):
@@ -161,34 +178,36 @@ async def recompute_clusters(user_id: str):
 
         embeddings = np.array(emb_list, dtype=np.float32)
 
-        k, medoid_vectors, medoid_keys = _compute_clusters(embeddings, track_keys)
+        k, medoid_vectors, medoid_keys, global_vec = _compute_clusters(embeddings, track_keys)
 
         await pool.execute(
             """
-            INSERT INTO user_interest_clusters (user_id, k, medoids, track_keys, updated_at)
-            VALUES ($1::uuid, $2, $3::jsonb, $4::jsonb, NOW())
+            INSERT INTO user_interest_clusters (user_id, k, medoids, track_keys, global_embedding, updated_at)
+            VALUES ($1::uuid, $2, $3::jsonb, $4::jsonb, $5::jsonb, NOW())
             ON CONFLICT (user_id) DO UPDATE
               SET k = EXCLUDED.k,
                   medoids = EXCLUDED.medoids,
                   track_keys = EXCLUDED.track_keys,
+                  global_embedding = EXCLUDED.global_embedding,
                   updated_at = NOW()
             """,
             user_id,
             k,
             json.dumps(medoid_vectors),
             json.dumps(medoid_keys),
+            json.dumps(global_vec),
         )
 
-        logger.info(f"[cluster] user={user_id} k={k} medoids={medoid_keys}")
+        logger.info(f"[interest_profile] user={user_id} k={k} medoids={medoid_keys}")
 
     except Exception as e:
-        logger.error(f"[cluster] recompute_clusters error user={user_id}: {e}")
+        logger.error(f"[interest_profile] recompute_clusters error user={user_id}: {e}")
 
 
-@router.post("/cluster")
-async def cluster(user: dict = Depends(get_current_user)):
+@router.post("/interest-profile")
+async def interest_profile(user: dict = Depends(get_current_user)):
     """
-    수동으로 클러스터 재계산 트리거 (테스트/디버그용).
+    수동으로 interest profile 재계산 트리거 (테스트/디버그용).
     favorites POST에서 자동 호출되므로 보통 직접 호출 불필요.
     """
     await recompute_clusters(user["user_id"])

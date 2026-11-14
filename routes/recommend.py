@@ -1,19 +1,19 @@
 """
-Dual Attention 기반 추천 (/recommend)
+Dual Attention + Global Pooling 기반 추천 (/recommend)
 
 알고리즘:
   1. 클릭한 곡(seed)의 SimGCL 64d 임베딩 조회
-  2. seed 기준 ANN 100개 후보 선정 (track_vectors_simgcl, cosine)
-  3. user_interest_clusters에서 k개 medoid 조회
+  2. seed 기준 ANN 100개 후보 선정 (track_embeddings, cosine)
+  3. user_interest_clusters에서 k개 medoid + global_embedding 조회
      - 없거나 저장곡 <= 5개(클러스터 없음)면 ANN 유사도 순으로 바로 리턴
-  4. Dual Attention 계산:
+  4. Dual Attention 계산 (τ = 0.2):
      - SIA = softmax(cos(seed,   medoids) / τ)   # seed의 클러스터 관심 분포
      - CIA = softmax(cos(cand,   medoids) / τ)   # 후보의 클러스터 관심 분포
      - Combined = normalize(SIA × CIA)            # 두 분포가 겹치는 클러스터 강조
-     - Final Score = Σ_j (Combined_j × cos(cand, medoid_j))
-  5. Final Score 내림차순 정렬 → num_recommendations개 리턴
-
-τ (temperature) = 0.2
+     - DA Score = Σ_j (Combined_j × cos(cand, medoid_j))
+  5. Global Pooling Score = cos(cand, global_embedding)
+  6. Final Score = 0.8 × DA Score + 0.2 × Global Score
+  7. Final Score 내림차순 정렬 → num_recommendations개 리턴
 """
 
 import json
@@ -33,6 +33,8 @@ router = APIRouter()
 
 TEMPERATURE = 0.2
 CANDIDATE_LIMIT = 100
+DA_WEIGHT = 0.8
+GLOBAL_WEIGHT = 0.2
 
 
 class RecommendRequest(BaseModel):
@@ -151,9 +153,9 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_current_
     if not rows:
         raise HTTPException(status_code=500, detail="No candidates found")
 
-    # 3. 클러스터 조회
+    # 3. 클러스터 + 글로벌 풀링 조회
     cluster_row = await pool.fetchrow(
-        "SELECT k, medoids FROM user_interest_clusters WHERE user_id = $1::uuid",
+        "SELECT k, medoids, global_embedding FROM user_interest_clusters WHERE user_id = $1::uuid",
         user["user_id"]
     )
 
@@ -164,11 +166,7 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_current_
         logger.info(f"[{rid}] total={elapsed_ms(t0):.1f}ms recs={len(result)}")
         return {"recommendations": result, "mode": "ann_fallback"}
 
-    # 4. Dual Attention 스코어 계산
-    t_attn = now_ms()
-    medoids_raw = json.loads(cluster_row["medoids"]) if isinstance(cluster_row["medoids"], str) else cluster_row["medoids"]
-    medoids = np.array(medoids_raw, dtype=np.float32)   # (k, d)
-
+    # 4. 후보 임베딩 준비
     cand_embs = []
     cand_rows = []
     for row in rows:
@@ -177,17 +175,34 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_current_
             emb = json.loads(emb)
         cand_embs.append(emb)
         cand_rows.append(row)
-
     cand_embs = np.array(cand_embs, dtype=np.float32)   # (n, d)
-    scores = _dual_attention_scores(seed_emb, cand_embs, medoids)
+
+    # 5. Dual Attention 스코어 계산
+    t_attn = now_ms()
+    medoids_raw = json.loads(cluster_row["medoids"]) if isinstance(cluster_row["medoids"], str) else cluster_row["medoids"]
+    medoids = np.array(medoids_raw, dtype=np.float32)   # (k, d)
+    da_scores = _dual_attention_scores(seed_emb, cand_embs, medoids)
     logger.info(f"[{rid}] dual_attention={elapsed_ms(t_attn):.1f}ms k={cluster_row['k']}")
 
-    # 5. 스코어 내림차순 정렬 → 리턴
+    # 6. Global Pooling 스코어 (global_embedding 없으면 0)
+    global_raw = cluster_row["global_embedding"]
+    if global_raw is not None:
+        if isinstance(global_raw, str):
+            global_raw = json.loads(global_raw)
+        global_vec = np.array(global_raw, dtype=np.float32)
+        global_scores = _cosine_sim(global_vec, cand_embs)   # (n,)
+    else:
+        global_scores = np.zeros(len(cand_embs), dtype=np.float32)
+
+    # 7. 혼합 스코어: DA 80% + Global 20%
+    scores = DA_WEIGHT * da_scores + GLOBAL_WEIGHT * global_scores
+
+    # 8. 스코어 내림차순 정렬 → 리턴
     order = np.argsort(-scores)
     sorted_rows = [cand_rows[i] for i in order]
     result = _format_rows(sorted_rows, excluded, target, score_key=None, scores=[float(scores[i]) for i in order])
 
-    logger.info(f"[{rid}] total={elapsed_ms(t0):.1f}ms recs={len(result)} mode=dual_attention")
+    logger.info(f"[{rid}] total={elapsed_ms(t0):.1f}ms recs={len(result)} mode=dual_attention+global")
     return {"recommendations": result, "mode": "dual_attention", "k": int(cluster_row["k"])}
 
 

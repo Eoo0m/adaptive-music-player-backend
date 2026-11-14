@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from database import get_db_pool
 from routes.auth import get_current_user
-from routes.cluster import recompute_clusters
+from routes.interest_profile import recompute_clusters
 
 logger = logging.getLogger(__name__)
 
