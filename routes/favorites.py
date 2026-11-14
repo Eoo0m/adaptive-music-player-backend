@@ -1,9 +1,10 @@
 import logging
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 
 from database import get_db_pool
 from routes.auth import get_current_user
+from routes.cluster import recompute_clusters
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,11 @@ async def get_favorites(user: dict = Depends(get_current_user)):
 
 
 @router.post("")
-async def add_favorite(request: FavoriteRequest, user: dict = Depends(get_current_user)):
+async def add_favorite(
+    request: FavoriteRequest,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(get_current_user),
+):
     """곡 찜하기"""
     pool = await get_db_pool()
     try:
@@ -68,6 +73,8 @@ async def add_favorite(request: FavoriteRequest, user: dict = Depends(get_curren
             user["user_id"], request.track_key
         )
         logger.info(f"Favorite added: user={user['user_id']}, track={request.track_key}")
+        # 클러스터 재계산 (백그라운드)
+        background_tasks.add_task(recompute_clusters, user["user_id"])
         return {"success": True}
     except Exception as e:
         logger.error(f"Add favorite error: {str(e)}")
