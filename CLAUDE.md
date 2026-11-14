@@ -25,7 +25,7 @@ routes/
   home_feed.py       # /home-feed (찜 기반 개인화 피드)
   action_log.py      # /log-action (유저 행동 로그)
   music_map.py       # /music-map, /top-tracks (취향 지도)
-  dynamic_streaming.py  # /dynamic-next (다음 곡 선택)
+  dynamic_streaming.py  # /next-track (유사곡), /dynamic-next (다른 곡) — pgvector ANN, Python numpy 계산 없음
   playlist_builder.py   # /playlist-builder
 sql/                 # DB 스키마, 인덱스, 테이블 정의
 experiments/         # HNSW recall 실험 등
@@ -40,7 +40,8 @@ docs/                # 변경 이력, 이슈 기록
 | /smart-search | POST | X | 의도 분류 → 엔티티 + 무드 결과 |
 | /find-similar-tracks | POST | X | 단일 트랙 유사곡 |
 | /recommend | POST | X | Two-Tower 세션 추천 |
-| /dynamic-next | POST | X | 다음 곡 선택 (인접/먼 트랙) |
+| /next-track | POST | X | 유사곡 — 현재 곡과 가까운 상위 10% 중 랜덤 4개 (pgvector ANN) |
+| /dynamic-next | POST | X | 다른 곡 — 현재 곡과 먼 상위 30% 중 랜덤 4개 (pgvector ANN) |
 | /music-map | POST | JWT | 취향 지도 (MDS + 격자 배치) |
 | /top-tracks | GET | X | 저장수 높은 트랙 |
 | /home-feed-v2 | GET | JWT | 개인화 홈 피드 |
@@ -55,7 +56,7 @@ docs/                # 변경 이력, 이슈 기록
 ## DB Tables
 - `tracks` — 트랙 메타 (track_key, title, artist, album, cover_image_url, apple_music_id, playlist_count)
 - `track_embeddings` — SimGCL 64d + CLIP 512d + Two-Tower 128d 통합
-- `track_vectors_simgcl` — SimGCL embedding 64d (find-similar-tracks, music-map 전용)
+- `track_vectors_simgcl` — SimGCL embedding 64d (find-similar-tracks, music-map, next-track, dynamic-next 전용) — HNSW 인덱스 `idx_simgcl_embedding_hnsw` (`vector_cosine_ops`, m=32, ef=200)
 - `users` — Apple OAuth 유저
 - `user_favorites` — 찜 목록
 - `user_action_logs` — 행동 로그 (search/play/favorite/select)
