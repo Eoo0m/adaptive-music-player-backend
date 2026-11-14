@@ -117,15 +117,15 @@ async def music_map(request: MusicMapRequest, user: dict | None = Depends(get_op
                seeds.seed_key::text,
                t.track_key::text, t.title::text, t.artist::text, t.album::text,
                t.cover_image_url::text, t.playlist_count, t.apple_music_id::text,
-               te.embedding,
-               (1 - (v.embedding <=> seeds.seed_emb))::float AS ann_sim
+               t.embedding,
+               (1 - t.dist)::float AS ann_sim
         FROM seeds
         CROSS JOIN LATERAL (
-            SELECT t.track_key, t.title, t.artist, t.album, t.cover_image_url, t.playlist_count, t.apple_music_id,
+            SELECT v.track_key, tr.title, tr.artist, tr.album, tr.cover_image_url, tr.playlist_count, tr.apple_music_id,
                    te.embedding,
                    v.embedding <=> seeds.seed_emb AS dist
             FROM track_vectors_simgcl v
-            JOIN tracks t ON v.track_key = t.track_key
+            JOIN tracks tr ON v.track_key = tr.track_key
             JOIN track_embeddings te ON v.track_key = te.track_key
             WHERE v.track_key != ALL($3::text[])
               AND te.embedding IS NOT NULL
