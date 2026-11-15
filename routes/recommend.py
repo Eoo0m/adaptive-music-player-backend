@@ -127,7 +127,7 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
     exclude_keys = list(excluded | {request.track_key})
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.execute("SET LOCAL hnsw.ef_search = 300")
+            await conn.execute("SET LOCAL hnsw.ef_search = 100")
             rows = await conn.fetch(
                 """
                 SELECT
