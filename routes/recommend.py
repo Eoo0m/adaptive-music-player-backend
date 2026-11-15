@@ -113,19 +113,16 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
 
     # 1. seed 임베딩 조회
     seed_row = await pool.fetchrow(
-        "SELECT embedding FROM track_embeddings WHERE track_key = $1",
+        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
         request.track_key
     )
     if not seed_row or not seed_row["embedding"]:
         raise HTTPException(status_code=404, detail="Seed track embedding not found")
 
-    seed_raw = seed_row["embedding"]
-    if isinstance(seed_raw, str):
-        seed_raw = json.loads(seed_raw)
-    seed_emb = np.array(seed_raw, dtype=np.float32)
-    seed_vec_str = str(seed_raw)
+    seed_vec_str = seed_row["embedding"]
+    seed_emb = np.array(json.loads(seed_vec_str), dtype=np.float32)
 
-    # 2. ANN 100개 후보 선정 (SimGCL, cosine)
+    # 2. ANN 후보 선정 (SimGCL, cosine)
     t_ann = now_ms()
     exclude_keys = list(excluded | {request.track_key})
     rows = await pool.fetch(
@@ -138,12 +135,12 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
             t.cover_image_url::text,
             t.apple_music_id::text,
             t.playlist_count,
-            te.embedding,
-            (1 - (te.embedding <=> $1::vector))::float AS ann_sim
-        FROM track_embeddings te
-        JOIN tracks t ON te.track_key = t.track_key
-        WHERE te.track_key != ALL($2)
-        ORDER BY te.embedding <=> $1::vector
+            v.embedding::text AS embedding,
+            (1 - (v.embedding <=> $1::vector))::float AS ann_sim
+        FROM track_vectors_simgcl v
+        JOIN tracks t ON v.track_key = t.track_key
+        WHERE v.track_key != ALL($2)
+        ORDER BY v.embedding <=> $1::vector
         LIMIT $3
         """,
         seed_vec_str, exclude_keys, CANDIDATE_LIMIT
