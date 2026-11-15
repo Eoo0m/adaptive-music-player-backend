@@ -92,11 +92,10 @@ async def recompute_clusters(user_id: str):
         # 최근 저장 50곡 임베딩 조회
         rows = await pool.fetch(
             """
-            SELECT f.track_key, te.embedding
+            SELECT f.track_key, v.embedding
             FROM user_favorites f
-            JOIN track_embeddings te ON f.track_key = te.track_key
+            JOIN track_vectors_simgcl v ON f.track_key = v.track_key
             WHERE f.user_id = $1::uuid
-              AND te.embedding IS NOT NULL
             ORDER BY f.created_at DESC
             LIMIT $2
             """,
@@ -124,7 +123,7 @@ async def recompute_clusters(user_id: str):
         proj_rows = await pool.fetch(
             """
             SELECT track_key, projected_embedding
-            FROM track_embeddings
+            FROM track_vectors_clip
             WHERE track_key = ANY($1) AND projected_embedding IS NOT NULL
             """,
             medoid_keys,

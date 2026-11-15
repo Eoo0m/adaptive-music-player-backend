@@ -49,8 +49,6 @@ from routes.interest_profile import router as interest_profile_router
 from routes.action_log import router as action_log_router
 from routes.auth import router as auth_router
 from routes.favorites import router as favorites_router
-from routes.home_feed import router as home_feed_router
-from routes.home_feed_v2 import router as home_feed_v2_router
 from routes.playlist_builder import router as playlist_builder_router
 from routes.music_map import router as music_map_router
 from routes.dynamic_streaming import router as dynamic_streaming_router
@@ -314,8 +312,6 @@ app.include_router(interest_profile_router)
 app.include_router(action_log_router)
 app.include_router(auth_router)
 app.include_router(favorites_router)
-app.include_router(home_feed_router)
-app.include_router(home_feed_v2_router)
 app.include_router(playlist_builder_router)
 app.include_router(music_map_router)
 app.include_router(dynamic_streaming_router)
