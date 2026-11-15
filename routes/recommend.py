@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 TEMPERATURE = 0.2
-CANDIDATE_LIMIT = 200
+CANDIDATE_LIMIT = 40
 DA_WEIGHT = 0.8
 GLOBAL_WEIGHT = 0.2
 
@@ -125,29 +125,26 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
     # 2. ANN 후보 선정 (SimGCL, cosine)
     t_ann = now_ms()
     exclude_keys = list(excluded | {request.track_key})
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.execute("SET LOCAL hnsw.ef_search = 100")
-            rows = await conn.fetch(
-                """
-                SELECT
-                    t.track_key,
-                    t.title::text,
-                    t.artist::text,
-                    t.album::text,
-                    t.cover_image_url::text,
-                    t.apple_music_id::text,
-                    t.playlist_count,
-                    v.embedding::text AS embedding,
-                    (1 - (v.embedding <=> $1::vector))::float AS ann_sim
-                FROM track_vectors_simgcl v
-                JOIN tracks t ON v.track_key = t.track_key
-                WHERE v.track_key != ALL($2)
-                ORDER BY v.embedding <=> $1::vector
-                LIMIT $3
-                """,
-                seed_vec_str, exclude_keys, CANDIDATE_LIMIT
-            )
+    rows = await pool.fetch(
+        """
+        SELECT
+            t.track_key,
+            t.title::text,
+            t.artist::text,
+            t.album::text,
+            t.cover_image_url::text,
+            t.apple_music_id::text,
+            t.playlist_count,
+            v.embedding::text AS embedding,
+            (1 - (v.embedding <=> $1::vector))::float AS ann_sim
+        FROM track_vectors_simgcl v
+        JOIN tracks t ON v.track_key = t.track_key
+        WHERE v.track_key != ALL($2)
+        ORDER BY v.embedding <=> $1::vector
+        LIMIT $3
+        """,
+        seed_vec_str, exclude_keys, CANDIDATE_LIMIT
+    )
     logger.info(f"[{rid}] ANN={elapsed_ms(t_ann):.1f}ms candidates={len(rows)}")
 
     if not rows:
