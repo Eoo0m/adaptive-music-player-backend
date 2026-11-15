@@ -6,27 +6,29 @@ AI 기반 음악 추천 서비스 백엔드. FastAPI + PostgreSQL(Supabase) + Py
 ## Tech Stack
 - **Framework**: FastAPI (Python)
 - **DB**: Supabase PostgreSQL + asyncpg (직접 연결, PgBouncer transaction mode)
-- **Vector Search**: pgvector + HNSW 인덱스
-- **ML Models**: CLIP (키워드→트랙 프로젝션), Two-Tower (세션 기반 추천)
-- **Auth**: Google OAuth → JWT (python-jose)
+- **Vector Search**: pgvector + HNSW 인덱스 (`hnsw.ef_search=300` — recommend에서 SET LOCAL로 설정)
+- **ML Models**: CLIP (키워드→트랙 프로젝션), Dual Attention + Global Pooling (찜 기반 추천)
+- **Auth**: Apple Sign In → JWT (python-jose)
 - **Deploy**: NCP Ubuntu, systemd 서비스 (`dynplayer`), `bash deploy.sh`로 배포
 
 ## Project Structure
 ```
 main.py              # app 생성, CORS, startup/shutdown, 라우터 등록
 database.py          # asyncpg connection pool
-models.py            # CLIP, Two-Tower 모델 정의 + 로드 (.pt 파일)
+models.py            # CLIP 모델 정의 + 로드 (.pt 파일)
 utils.py             # mmr_rerank, OpenAI 임베딩 헬퍼
 routes/
-  search.py          # /search-songs, /search-by-keyword, /find-similar-tracks
-  recommend.py       # /recommend (Two-Tower 세션 추천)
-  auth.py            # /auth/google/login, /auth/google/callback, /auth/me
+  smart_search.py    # /smart-search (의도 분류 → 엔티티 + 무드 결과)
+  autocomplete.py    # /search-autocomplete
+  recommend.py       # /recommend (Dual Attention + Global Pooling, 찜 기반)
+  auth.py            # /auth/apple/mobile, /auth/me
   favorites.py       # /favorites (GET/POST/DELETE)
-  home_feed.py       # /home-feed (찜 기반 개인화 피드)
   action_log.py      # /log-action (유저 행동 로그)
   music_map.py       # /music-map, /top-tracks (취향 지도)
-  dynamic_streaming.py  # /next-track (유사곡), /dynamic-next (다른 곡) — pgvector ANN, Python numpy 계산 없음
+  dynamic_streaming.py  # /next-track, /dynamic-next — pgvector ANN
   playlist_builder.py   # /playlist-builder
+  interest_profile.py   # /interest-profile (찜 기반 클러스터링)
+  user_maps.py       # /user-maps (뮤직맵 저장/불러오기)
 sql/                 # DB 스키마, 인덱스, 테이블 정의
 experiments/         # HNSW recall 실험 등
 docs/                # 변경 이력, 이슈 기록
@@ -35,48 +37,58 @@ docs/                # 변경 이력, 이슈 기록
 ## Key APIs
 | Endpoint | Method | Auth | Description |
 |---|---|---|---|
-| /search-autocomplete | GET | X | 자동완성 (docs/search_autocomplete.md 참고) |
-| /search-songs | POST | X | 제목/아티스트 검색 |
-| /smart-search | POST | X | 의도 분류 → 엔티티 + 무드 결과 |
-| /find-similar-tracks | POST | X | 단일 트랙 유사곡 |
-| /recommend | POST | X | Two-Tower 세션 추천 |
+| /search-autocomplete | GET | X | 자동완성 |
+| /smart-search | POST | X | 의도 분류 → 엔티티(trigram) + 무드(CLIP ANN+MMR) 결과 동시 반환 |
+| /recommend | POST | X/JWT | Dual Attention + Global Pooling 추천 (비로그인 시 ANN fallback) |
 | /next-track | POST | X | 유사곡 — 현재 곡과 가까운 상위 10% 중 랜덤 4개 (pgvector ANN) |
 | /dynamic-next | POST | X | 다른 곡 — 현재 곡과 먼 상위 30% 중 랜덤 4개 (pgvector ANN) |
 | /music-map | POST | JWT | 취향 지도 (MDS + 격자 배치) |
 | /top-tracks | GET | X | 저장수 높은 트랙 |
-| /home-feed-v2 | GET | JWT | 개인화 홈 피드 |
 | /favorites | GET/POST/DELETE | JWT | 찜 목록 CRUD |
 | /recent-searches | GET/DELETE | JWT | 최근 검색 키워드 |
 | /recent-plays | GET | JWT | 최근 재생 트랙 |
-| /log-action | POST | X | 유저 행동 로그 (search 타입은 search_keywords 카운트도 증가) |
+| /log-action | POST | X | 유저 행동 로그 |
 | /auth/apple/mobile | POST | X | Apple Sign In → JWT 발급 |
 | /auth/me | GET | JWT | 유저 정보 |
 | /playlist-builder/* | POST/GET | JWT | 플리 빌더 (start/next/save/my-playlists) |
+| /interest-profile | POST | JWT | 찜 기반 클러스터링 → user_interest_clusters 갱신 |
+| /user-maps | GET/POST | JWT | 뮤직맵 저장/불러오기 |
 
 ## DB Tables
 - `tracks` — 트랙 메타 (track_key, title, artist, album, cover_image_url, apple_music_id, playlist_count)
-- `track_embeddings` — SimGCL 64d + CLIP 512d + Two-Tower 128d 통합
-- `track_vectors_simgcl` — SimGCL embedding 64d (find-similar-tracks, music-map, next-track, dynamic-next 전용) — HNSW 인덱스 `idx_simgcl_embedding_hnsw` (`vector_cosine_ops`, m=32, ef=200)
+- `track_vectors_simgcl` — SimGCL 64d embedding. recommend, music-map, next-track, dynamic-next, interest-profile 전용. HNSW 인덱스 (`vector_cosine_ops`, m=32, ef=200). **기본 ef_search=40 → recommend에서 SET LOCAL hnsw.ef_search=300**
+- `track_vectors_clip` — CLIP 512d projected_embedding. smart-search 무드 검색, interest-profile medoid 프로젝션 전용. HNSW 인덱스 (`vector_cosine_ops`)
+- `keyword_embeddings` — 검색어 OpenAI 임베딩 캐시 (smart-search 속도 최적화)
 - `users` — Apple OAuth 유저
 - `user_favorites` — 찜 목록
 - `user_action_logs` — 행동 로그 (search/play/favorite/select)
-- `search_keywords` — 자동완성용 키워드 + 검색수 (docs/search_autocomplete.md 참고)
+- `user_interest_clusters` — 찜 기반 클러스터 (k, medoids 64d, global_embedding 64d) — recommend Dual Attention 입력
+- `user_maps` — 뮤직맵 저장
+- `search_keywords` — 자동완성용 키워드 + 검색수
 - `user_playlists` — 플리 빌더 저장 플레이리스트
 
-## track_embeddings 임베딩 컬럼 용도
+**삭제된 테이블**: `track_embeddings`(통합 테이블, 각 전용 테이블로 대체), `track_vectors_twotower`(미사용), `listening_logs`(미사용), `tmp_cover_url_fix`(임시)
 
-| 컬럼 | 차원 | 생성 모델 | 학습 방법 | 용도 | HNSW 인덱스 |
-|---|---|---|---|---|---|
-| `embedding` | 64d | SimGCL | 플레이리스트-트랙 이분 그래프 위에서 LightGCN propagation + noise augmentation + BPR loss + contrastive loss. LOO(Leave-One-Out) 평가. | 트랙 간 음악적 유사도 (find-similar-tracks, music-map) | O (`vector_cosine_ops`, m=32, ef=200) |
-| `projected_embedding` | 512d | CLIP (ProjectionMLP) | SimGCL 64d 트랙 임베딩을 텍스트 공간으로 프로젝션. 플레이리스트 캡션(GPT 생성) + 개별 태그를 OpenAI text embedding으로 변환 후 대조학습(InfoNCE). 저장수 log(saves)로 가중치. | 텍스트 키워드 → 음악 매핑 (search-by-keyword) | O (`vector_cosine_ops`) |
-| `itemtower_embedding` | 128d | Two-Tower (Item Tower MLP) | SimGCL 64d 임베딩 입력 → MLP → 128d. User Tower(Transformer)와 함께 InfoNCE in-batch negative로 학습. LOO split 사용. | 세션 기반 추천 (recommend) | 확인 필요 |
+## 임베딩 테이블 용도
 
-**혼용 금지**: `embedding`을 키워드 검색에 쓰거나, `projected_embedding`을 유사곡 검색에 쓰면 결과가 엉뚱해짐.
+| 테이블 | 차원 | 모델 | 용도 |
+|---|---|---|---|
+| `track_vectors_simgcl` | 64d | SimGCL | 트랙 간 음악적 유사도 — recommend, music-map, next/dynamic-next |
+| `track_vectors_clip` | 512d | CLIP ProjectionMLP | 텍스트→음악 매핑 — smart-search 무드, interest-profile medoid |
+
+**혼용 금지**: SimGCL을 키워드 검색에, CLIP을 유사곡 검색에 쓰면 결과 엉뚱해짐.
 
 학습 코드 위치: `/Users/eomjoonseo/dynplayer/src/`
-- `simgcl/` — SimGCL 학습 → `embedding` 생성
-- `clip_simgcl/` — CLIP 프로젝션 학습 → `projected_embedding` 생성
-- `two_tower/` — Two-Tower 학습 → `itemtower_embedding` 생성
+- `simgcl/` — SimGCL 학습 → `track_vectors_simgcl.embedding`
+- `clip_simgcl/` — CLIP 프로젝션 학습 → `track_vectors_clip.projected_embedding`
+
+## /recommend 아키텍처
+
+1. seed 트랙 SimGCL 임베딩 조회 (`track_vectors_simgcl`, `::text` 캐스팅)
+2. `SET LOCAL hnsw.ef_search=300` → ANN 200개 후보 (기본 ef_search=40이라 필수)
+3. `user_interest_clusters` 조회 → 없으면 ANN 유사도 순 그대로 반환
+4. Dual Attention (SIA × CIA) + Global Pooling 혼합 스코어 (DA 80% + Global 20%)
+5. 스코어 내림차순 → `num_recommendations`개 반환 (기본 56)
 
 ## Deploy
 ```bash
@@ -125,7 +137,7 @@ similarity 공식: `(1 - (embedding <=> query))::float` (cosine distance는 0~1 
 
 인덱스 확인:
 ```sql
-SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'track_embeddings';
+SELECT indexname, indexdef FROM pg_indexes WHERE tablename IN ('track_vectors_simgcl', 'track_vectors_clip');
 ```
 
 ## Notes
