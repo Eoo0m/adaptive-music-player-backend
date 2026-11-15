@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 TRACK_FIELDS = """
-    te.track_key::text, te.title::text, te.artist::text, te.album::text,
-    te.cover_image_url::text, te.apple_music_id::text, te.playlist_count
+    te.track_key::text, t.title::text, t.artist::text, t.album::text,
+    t.cover_image_url::text, t.apple_music_id::text, t.playlist_count
 """
 
 RETRY_COUNT = 4
@@ -53,6 +53,7 @@ async def next_track(request: TrackRequest):
             f"""
             SELECT {TRACK_FIELDS}
             FROM track_embeddings te
+            JOIN tracks t ON t.track_key = te.track_key
             WHERE te.track_key != $1
               AND te.track_key = ANY($3::text[])
             ORDER BY te.embedding <=> $2::vector
@@ -65,6 +66,7 @@ async def next_track(request: TrackRequest):
             f"""
             SELECT {TRACK_FIELDS}
             FROM track_embeddings te
+            JOIN tracks t ON t.track_key = te.track_key
             WHERE te.track_key != $1
             ORDER BY te.embedding <=> $2::vector
             LIMIT $3
@@ -102,6 +104,7 @@ async def dynamic_next(request: TrackRequest):
             f"""
             SELECT {TRACK_FIELDS}
             FROM track_embeddings te
+            JOIN tracks t ON t.track_key = te.track_key
             WHERE te.track_key != $1
               AND te.track_key = ANY($3::text[])
             ORDER BY te.embedding <=> $2::vector DESC
@@ -114,6 +117,7 @@ async def dynamic_next(request: TrackRequest):
             f"""
             SELECT {TRACK_FIELDS}
             FROM track_embeddings te
+            JOIN tracks t ON t.track_key = te.track_key
             WHERE te.track_key != $1
             ORDER BY te.embedding <=> $2::vector DESC
             LIMIT $3
