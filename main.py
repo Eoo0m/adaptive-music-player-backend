@@ -44,7 +44,6 @@ from database import get_db_pool
 import database
 from utils import openai_client
 from models import playlist_clip_model
-from routes.search import router as search_router, search_by_keyword
 from routes.recommend import router as recommend_router
 from routes.interest_profile import router as interest_profile_router
 from routes.action_log import router as action_log_router
@@ -55,7 +54,7 @@ from routes.home_feed_v2 import router as home_feed_v2_router
 from routes.playlist_builder import router as playlist_builder_router
 from routes.music_map import router as music_map_router
 from routes.dynamic_streaming import router as dynamic_streaming_router
-from routes.smart_search import router as smart_search_router
+from routes.smart_search import router as smart_search_router, smart_search as _smart_search_fn
 from routes.autocomplete import router as autocomplete_router
 from routes.user_maps import router as user_maps_router
 from telemetry import elapsed_ms, new_request_id, now_ms, request_id_var
@@ -179,20 +178,15 @@ async def startup_event():
             )
         logger.info(f"  ✅ Title search warmed up ({time.time() - title_warmup_start:.2f}s, {len(warmup_queries)} queries)")
 
-        # 4. 키워드 검색 전체 파이프라인 워밍업 (실제 엔드포인트 호출)
-        logger.info("  ⏳ Warming up keyword search endpoint...")
+        # 4. 스마트 검색 파이프라인 워밍업
+        logger.info("  ⏳ Warming up smart search endpoint...")
         keyword_warmup_start = time.time()
         try:
-            # KeywordSearchRequest는 startup보다 나중에 정의되므로,
-            # 수동으로 간단한 요청 객체 생성
-            class _WarmupReq:
-                keyword = "love"
-
-            _ = await search_by_keyword(_WarmupReq())
-
-            logger.info(f"  ✅ Keyword search endpoint warmed up ({time.time() - keyword_warmup_start:.2f}s)")
+            from routes.smart_search import SmartSearchRequest as _SSReq
+            _ = await _smart_search_fn(_SSReq(query="love", entity_limit=5, mood_top_k=10, mood_candidates=20))
+            logger.info(f"  ✅ Smart search warmed up ({time.time() - keyword_warmup_start:.2f}s)")
         except Exception as e:
-            logger.warning(f"  ⚠️  Keyword warmup failed (non-critical): {str(e)}")
+            logger.warning(f"  ⚠️  Smart search warmup failed (non-critical): {str(e)}")
 
         # Keep-Alive 백그라운드 작업 시작
         keep_alive_task = asyncio.create_task(keep_alive_ping())
@@ -281,9 +275,8 @@ async def warmup():
     # 백그라운드에서 키워드 검색 워밍업 (응답 기다리지 않음)
     async def _run_warmup():
         try:
-            class _WarmupReq:
-                keyword = "love"
-            await search_by_keyword(_WarmupReq())
+            from routes.smart_search import SmartSearchRequest as _SSReq
+            await _smart_search_fn(_SSReq(query="love", entity_limit=5, mood_top_k=10, mood_candidates=20))
             logger.info("✅ Warmup completed")
         except Exception as e:
             logger.warning(f"⚠️ Warmup failed: {str(e)}")
@@ -316,7 +309,6 @@ async def health_check():
 
 
 # 라우터 등록
-app.include_router(search_router)
 app.include_router(recommend_router)
 app.include_router(interest_profile_router)
 app.include_router(action_log_router)

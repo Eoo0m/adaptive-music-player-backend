@@ -1,0 +1,59 @@
+{
+  "config": {
+    "num_tracks": 81699,
+    "embedding_dim": 64,
+    "num_queries": 100,
+    "top_k": 100,
+    "hnsw_m": 16,
+    "hnsw_ef_construction": 64
+  },
+  "timing": {
+    "upload_seconds": 16.66,
+    "index_build_seconds": 26.23,
+    "bruteforce": {
+      "mean": 0.0868,
+      "median": 0.0611,
+      "min": 0.0473,
+      "max": 0.4677
+    },
+    "hnsw": {
+      "mean": 0.042,
+      "median": 0.0256,
+      "min": 0.0211,
+      "max": 0.2789
+    },
+    "speedup": 2.07
+  },
+  "recall": {
+    "recall@1": {
+      "mean": 0.99,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "recall@5": {
+      "mean": 0.99,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "recall@10": {
+      "mean": 0.989,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "recall@20": {
+      "mean": 0.9885,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "recall@50": {
+      "mean": 0.7722,
+      "min": 0.0,
+      "max": 0.78
+    },
+    "recall@100": {
+      "mean": 0.3861,
+      "min": 0.0,
+      "max": 0.39
+    }
+  }
+}

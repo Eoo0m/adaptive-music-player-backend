@@ -132,3 +132,63 @@ SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'track_embeddings';
 - .pt 파일(clip_best.pt, two_tower_best.pt)은 NCP 서버에만 존재
 - 로컬에서는 모델 로드 에러 발생 정상 (서버 전용)
 - PgBouncer 호환: statement_cache_size=0
+
+---
+
+## Client Apps
+
+### iOS Swift 앱
+**위치**: `/Users/eomjoonseo/caro/caro_app_swift/`
+- Xcode 프로젝트: `caro_app_swift.xcodeproj`
+- 소스: `caro_app_swift/` (git 없음, Xcode로 직접 관리)
+- Widget 익스텐션: `CaroWidget/`
+
+**주요 파일**:
+```
+MyApp.swift              # 앱 진입점, AuthStore + MusicPlayerStore 환경 주입
+ContentView.swift        # TabView (검색/저장/뮤직맵/프로필) + MiniPlayerView
+APIClient.swift          # 모든 API 호출 (base: api.caromusic.kr)
+Models.swift             # Track, Playlist, SmartSearchResult, MusicMapResult 등
+MusicPlayerStore.swift   # ApplicationMusicPlayer 래퍼, 프리페치 캐시, 곡 전환 감지
+AuthStore.swift          # Apple Sign In → JWT 저장 (UserDefaults "jwt")
+SearchView.swift         # 검색탭: smartSearch 하나만 호출, favoritedKeys Set으로 favorites 관리
+SavedView.swift          # 저장탭: favorites 목록
+MusicMapView.swift       # 취향지도탭: music-map API + canvas 렌더링
+NowPlayingView.swift     # 재생 상세화면
+ProfileView.swift        # 프로필/로그아웃
+```
+
+**아키텍처 특이사항**:
+- Auth: Apple Sign In → `/auth/apple/mobile` → JWT → `UserDefaults["jwt"]`
+- 재생: MusicKit `ApplicationMusicPlayer` (Apple Music 구독 필요)
+- 뮤직맵 캐시: `MusicPlayerStore.cachedMapTracks`, 30분 유효 (`isMapCacheValid`)
+- Widget → 앱 딥링크: `caro://play?track_key=...&apple_id=...` scheme
+
+**성능 주의**:
+- `SearchView`의 `favoritedKeys: Set<String>`으로 favorites를 한 번만 로드 — 카드별 `getFavorites()` 호출 절대 금지
+- `smartSearch` 하나만 사용 (`entity_results` + `mood_results` 모두 포함) — `searchSongs` 중복 호출 금지
+
+---
+
+### 웹 프론트엔드
+**위치**: `/Users/eomjoonseo/caro/adaptive-music-player/`
+- Cloudflare Pages 배포 (바닐라 JS/HTML/CSS, 프레임워크 없음)
+- git repo 별도 존재
+
+**주요 파일**:
+```
+app.html                 # 메인 앱 (검색/저장/뮤직맵 탭)
+js/
+  main.js                # 탭 전환, createTrackCard, track dots 메뉴 (_openTrackMenu)
+  music-map.js           # 취향지도 canvas 렌더링, fill_per_seed 계단식 (10개↓→5, 20개↓→3, 40개↓→2)
+  player.js              # MusicKit + playerWidget, _prefetchCache, _fetchAndPlay
+  favorites.js           # 찜탭, fav-dots-btn (항상 표시)
+  search.js              # 검색 UI
+  auth.js                # Apple Sign In (웹)
+css/styles.css           # 전체 스타일
+```
+
+**뮤직맵 렌더링**:
+- canvas 기반 → DOM overlay 좌표계 불일치로 canvas 위에 DOM 버튼 불가
+- 초기 카메라: 트랙 평균 좌표(`avgPx/avgPy`)로 중앙 정렬
+- 새로고침 시 canvasWrap 숨기지 않고 반투명 블러 오버레이만 표시

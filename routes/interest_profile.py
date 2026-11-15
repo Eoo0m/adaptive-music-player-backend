@@ -120,15 +120,34 @@ async def recompute_clusters(user_id: str):
 
         k, medoid_vectors, medoid_keys, global_vec = _compute_clusters(embeddings, track_keys)
 
+        # medoid track_key들의 projected_embedding(512d) 조회
+        proj_rows = await pool.fetch(
+            """
+            SELECT track_key, projected_embedding
+            FROM track_embeddings
+            WHERE track_key = ANY($1) AND projected_embedding IS NOT NULL
+            """,
+            medoid_keys,
+        )
+        proj_map = {}
+        for r in proj_rows:
+            emb = r["projected_embedding"]
+            if isinstance(emb, str):
+                emb = json.loads(emb)
+            proj_map[r["track_key"]] = emb
+
+        projected_medoids = [proj_map[k] for k in medoid_keys if k in proj_map]
+
         await pool.execute(
             """
-            INSERT INTO user_interest_clusters (user_id, k, medoids, track_keys, global_embedding, updated_at)
-            VALUES ($1::uuid, $2, $3::jsonb, $4::jsonb, $5::jsonb, NOW())
+            INSERT INTO user_interest_clusters (user_id, k, medoids, track_keys, global_embedding, projected_medoids, updated_at)
+            VALUES ($1::uuid, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, NOW())
             ON CONFLICT (user_id) DO UPDATE
               SET k = EXCLUDED.k,
                   medoids = EXCLUDED.medoids,
                   track_keys = EXCLUDED.track_keys,
                   global_embedding = EXCLUDED.global_embedding,
+                  projected_medoids = EXCLUDED.projected_medoids,
                   updated_at = NOW()
             """,
             user_id,
@@ -136,6 +155,7 @@ async def recompute_clusters(user_id: str):
             json.dumps(medoid_vectors),
             json.dumps(medoid_keys),
             json.dumps(global_vec),
+            json.dumps(projected_medoids) if projected_medoids else None,
         )
 
         logger.info(f"[interest_profile] user={user_id} k={k} medoids={medoid_keys}")

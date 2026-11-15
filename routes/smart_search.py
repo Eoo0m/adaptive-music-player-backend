@@ -26,7 +26,39 @@ from database import get_db_pool
 from models import playlist_clip_model, intent_classifier, INTENT_THRESHOLD, device
 from utils import get_openai_embedding_with_retry, mmr_rerank
 from telemetry import elapsed_ms, get_request_id, now_ms
-from routes.search import search_tracks_by_title_raw
+
+
+async def search_tracks_by_title_raw(query_text: str, match_count: int = 10):
+    """제목 기반 트랙 검색 (raw SQL)"""
+    rid = get_request_id()
+    t0 = now_ms()
+    pool = await get_db_pool()
+    rows = await pool.fetch(
+        """
+        SELECT
+            id,
+            track_key::text,
+            title::text,
+            artist::text,
+            album::text,
+            playlist_count,
+            cover_image_url::text,
+            apple_music_id::text,
+            similarity(lower(title || ' ' || artist), lower($1))::float AS similarity
+        FROM tracks
+        WHERE lower(title || ' ' || artist) % lower($1)
+           OR lower(title) ILIKE $1 || '%'
+           OR lower(artist) ILIKE $1 || '%'
+        ORDER BY
+            CASE WHEN lower(title) ILIKE $1 || '%' THEN 0 ELSE 1 END,
+            similarity(lower(title || ' ' || artist), lower($1)) DESC
+        LIMIT $2
+        """,
+        query_text,
+        match_count
+    )
+    logger.info(f"[{rid}] search_tracks_by_title total={elapsed_ms(t0):.1f}ms rows={len(rows)}")
+    return [dict(row) for row in rows]
 
 logger = logging.getLogger(__name__)
 

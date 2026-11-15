@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from database import get_db_pool
-from routes.auth import get_current_user
+from routes.auth import get_optional_user
 from telemetry import elapsed_ms, get_request_id, now_ms
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ def _dual_attention_scores(
 
 
 @router.post("/recommend")
-async def recommend(request: RecommendRequest, user: dict = Depends(get_current_user)):
+async def recommend(request: RecommendRequest, user: dict = Depends(get_optional_user)):
     """Dual Attention 기반 추천"""
     t0 = now_ms()
     rid = get_request_id()
@@ -156,7 +156,7 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_current_
     # 3. 클러스터 + 글로벌 풀링 조회
     cluster_row = await pool.fetchrow(
         "SELECT k, medoids, global_embedding FROM user_interest_clusters WHERE user_id = $1::uuid",
-        user["user_id"]
+        user["user_id"] if user else None
     )
 
     # 클러스터 없으면 ANN 유사도 순으로 바로 리턴
