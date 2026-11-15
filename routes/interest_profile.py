@@ -123,7 +123,7 @@ async def recompute_clusters(user_id: str):
         proj_rows = await pool.fetch(
             """
             SELECT track_key, projected_embedding
-            FROM track_vectors_clip
+            FROM track_embeddings
             WHERE track_key = ANY($1) AND projected_embedding IS NOT NULL
             """,
             medoid_keys,
