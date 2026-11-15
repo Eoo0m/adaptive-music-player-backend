@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 TEMPERATURE = 0.2
-CANDIDATE_LIMIT = 40
+CANDIDATE_LIMIT = 200
 DA_WEIGHT = 0.8
 GLOBAL_WEIGHT = 0.2
 
