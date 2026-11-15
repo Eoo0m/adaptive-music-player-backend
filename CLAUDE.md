@@ -140,6 +140,16 @@ similarity 공식: `(1 - (embedding <=> query))::float` (cosine distance는 0~1 
 SELECT indexname, indexdef FROM pg_indexes WHERE tablename IN ('track_vectors_simgcl', 'track_vectors_clip');
 ```
 
+## 향후 작업
+
+### Two-Tower 스코어 추가 (recommend)
+현재 `/recommend`는 `SIA + CIA + Global` 3가지 스코어로 랭킹. 여기에 Two-Tower 스코어 추가 가능:
+- API에 `session_track_keys: [String]` 인자 추가 (클라이언트에서 클릭 히스토리 누적해서 전달)
+- 백엔드: 시퀀스 → User Tower(`two_tower_best.pt`) → user vec (128d)
+- user vec ↔ 후보 `track_vectors_twotower` item vec → TwoTower similarity
+- `score = w1*SIA + w2*CIA + w3*Global + w4*TwoTower`
+- `track_vectors_twotower` 테이블은 이를 위해 삭제하지 않고 보존
+
 ## Notes
 - .pt 파일(clip_best.pt, two_tower_best.pt)은 NCP 서버에만 존재
 - 로컬에서는 모델 로드 에러 발생 정상 (서버 전용)
