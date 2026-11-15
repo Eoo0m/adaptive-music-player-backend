@@ -3,7 +3,7 @@ Dual Attention + Global Pooling 기반 추천 (/recommend)
 
 알고리즘:
   1. 클릭한 곡(seed)의 SimGCL 64d 임베딩 조회
-  2. seed 기준 ANN 100개 후보 선정 (track_embeddings, cosine)
+  2. seed 기준 ANN 100개 후보 선정 (track_vectors_simgcl, cosine)
   3. user_interest_clusters에서 k개 medoid + global_embedding 조회
      - 없거나 저장곡 <= 5개(클러스터 없음)면 ANN 유사도 순으로 바로 리턴
   4. Dual Attention 계산 (τ = 0.2):
@@ -113,7 +113,7 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
 
     # 1. seed 임베딩 조회
     seed_row = await pool.fetchrow(
-        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
+        "SELECT embedding::text FROM track_embeddings WHERE track_key = $1",
         request.track_key
     )
     if not seed_row or not seed_row["embedding"]:
@@ -128,19 +128,18 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
     rows = await pool.fetch(
         """
         SELECT
-            t.track_key,
-            t.title::text,
-            t.artist::text,
-            t.album::text,
-            t.cover_image_url::text,
-            t.apple_music_id::text,
-            t.playlist_count,
-            v.embedding::text AS embedding,
-            (1 - (v.embedding <=> $1::vector))::float AS ann_sim
-        FROM track_vectors_simgcl v
-        JOIN tracks t ON v.track_key = t.track_key
-        WHERE v.track_key != ALL($2)
-        ORDER BY v.embedding <=> $1::vector
+            te.track_key::text,
+            te.title::text,
+            te.artist::text,
+            te.album::text,
+            te.cover_image_url::text,
+            te.apple_music_id::text,
+            te.playlist_count,
+            te.embedding::text AS embedding,
+            (1 - (te.embedding <=> $1::vector))::float AS ann_sim
+        FROM track_embeddings te
+        WHERE te.track_key != ALL($2)
+        ORDER BY te.embedding <=> $1::vector
         LIMIT $3
         """,
         seed_vec_str, exclude_keys, CANDIDATE_LIMIT

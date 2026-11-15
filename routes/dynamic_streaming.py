@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 TRACK_FIELDS = """
-    t.track_key::text, t.title::text, t.artist::text, t.album::text,
-    t.cover_image_url::text, t.apple_music_id::text, t.playlist_count
+    te.track_key::text, te.title::text, te.artist::text, te.album::text,
+    te.cover_image_url::text, te.apple_music_id::text, te.playlist_count
 """
 
 RETRY_COUNT = 4
@@ -37,7 +37,7 @@ async def next_track(request: TrackRequest):
 
     # 현재 곡 임베딩 조회
     row = await pool.fetchrow(
-        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
+        "SELECT embedding::text FROM track_embeddings WHERE track_key = $1",
         request.track_key,
     )
     if not row:
@@ -52,11 +52,10 @@ async def next_track(request: TrackRequest):
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
-            FROM track_vectors_simgcl v
-            JOIN tracks t ON v.track_key = t.track_key
-            WHERE t.track_key != $1
-              AND t.track_key = ANY($3::text[])
-            ORDER BY v.embedding <=> $2::vector
+            FROM track_embeddings te
+            WHERE te.track_key != $1
+              AND te.track_key = ANY($3::text[])
+            ORDER BY te.embedding <=> $2::vector
             LIMIT $4
             """,
             request.track_key, emb_str, candidate_keys, top_k,
@@ -65,10 +64,9 @@ async def next_track(request: TrackRequest):
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
-            FROM track_vectors_simgcl v
-            JOIN tracks t ON v.track_key = t.track_key
-            WHERE t.track_key != $1
-            ORDER BY v.embedding <=> $2::vector
+            FROM track_embeddings te
+            WHERE te.track_key != $1
+            ORDER BY te.embedding <=> $2::vector
             LIMIT $3
             """,
             request.track_key, emb_str, max(RETRY_COUNT * 3, 20),
@@ -88,7 +86,7 @@ async def dynamic_next(request: TrackRequest):
     pool = await get_db_pool()
 
     row = await pool.fetchrow(
-        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
+        "SELECT embedding::text FROM track_embeddings WHERE track_key = $1",
         request.track_key,
     )
     if not row:
@@ -103,11 +101,10 @@ async def dynamic_next(request: TrackRequest):
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
-            FROM track_vectors_simgcl v
-            JOIN tracks t ON v.track_key = t.track_key
-            WHERE t.track_key != $1
-              AND t.track_key = ANY($3::text[])
-            ORDER BY v.embedding <=> $2::vector DESC
+            FROM track_embeddings te
+            WHERE te.track_key != $1
+              AND te.track_key = ANY($3::text[])
+            ORDER BY te.embedding <=> $2::vector DESC
             LIMIT $4
             """,
             request.track_key, emb_str, candidate_keys, top_k,
@@ -116,10 +113,9 @@ async def dynamic_next(request: TrackRequest):
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
-            FROM track_vectors_simgcl v
-            JOIN tracks t ON v.track_key = t.track_key
-            WHERE t.track_key != $1
-            ORDER BY v.embedding <=> $2::vector DESC
+            FROM track_embeddings te
+            WHERE te.track_key != $1
+            ORDER BY te.embedding <=> $2::vector DESC
             LIMIT $3
             """,
             request.track_key, emb_str, max(RETRY_COUNT * 3, 20),

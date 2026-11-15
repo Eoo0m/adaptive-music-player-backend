@@ -28,11 +28,10 @@ async def top_tracks(limit: int = 10):
     pool = await get_db_pool()
     rows = await pool.fetch(
         """
-        SELECT t.track_key::text, t.title::text, t.artist::text, t.album::text,
-               t.cover_image_url::text, t.playlist_count
-        FROM track_vectors_simgcl v
-        JOIN tracks t ON v.track_key = t.track_key
-        ORDER BY t.playlist_count DESC
+        SELECT te.track_key::text, te.title::text, te.artist::text, te.album::text,
+               te.cover_image_url::text, te.playlist_count
+        FROM track_embeddings te
+        ORDER BY te.playlist_count DESC
         LIMIT $1
         """,
         limit,
@@ -62,11 +61,10 @@ async def music_map(request: MusicMapRequest, user: dict | None = Depends(get_op
     # 1. seed 트랙 조회
     seed_rows = await pool.fetch(
         """
-        SELECT t.track_key::text, t.title::text, t.artist::text, t.album::text,
-               t.cover_image_url::text, t.playlist_count, t.apple_music_id::text, v.embedding::text
-        FROM track_vectors_simgcl v
-        JOIN tracks t ON v.track_key = t.track_key
-        WHERE t.track_key = ANY($1::text[])
+        SELECT te.track_key::text, te.title::text, te.artist::text, te.album::text,
+               te.cover_image_url::text, te.playlist_count, te.apple_music_id::text, te.embedding::text
+        FROM track_embeddings te
+        WHERE te.track_key = ANY($1::text[])
         """,
         request.track_keys,
     )
@@ -121,13 +119,12 @@ async def music_map(request: MusicMapRequest, user: dict | None = Depends(get_op
                (1 - t.dist)::float AS ann_sim
         FROM seeds
         CROSS JOIN LATERAL (
-            SELECT v.track_key, tr.title, tr.artist, tr.album, tr.cover_image_url, tr.playlist_count, tr.apple_music_id,
-                   v.embedding,
-                   v.embedding <=> seeds.seed_emb AS dist
-            FROM track_vectors_simgcl v
-            JOIN tracks tr ON v.track_key = tr.track_key
-            WHERE v.track_key != ALL($3::text[])
-            ORDER BY v.embedding <=> seeds.seed_emb
+            SELECT te.track_key, te.title, te.artist, te.album, te.cover_image_url, te.playlist_count, te.apple_music_id,
+                   te.embedding,
+                   te.embedding <=> seeds.seed_emb AS dist
+            FROM track_embeddings te
+            WHERE te.track_key != ALL($3::text[])
+            ORDER BY te.embedding <=> seeds.seed_emb
             LIMIT $4
         ) t
         """,

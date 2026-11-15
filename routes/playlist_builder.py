@@ -103,7 +103,7 @@ async def fetch_similar_candidates(track_key: str, limit: int = 50):
     """track_key 기반 유사곡 limit개 가져오기"""
     pool = await get_db_pool()
     query_row = await pool.fetchrow(
-        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
+        "SELECT embedding::text FROM track_embeddings WHERE track_key = $1",
         track_key
     )
     if not query_row:
@@ -111,18 +111,17 @@ async def fetch_similar_candidates(track_key: str, limit: int = 50):
     rows = await pool.fetch(
         """
         SELECT
-            t.track_key::text,
-            t.title::text,
-            t.artist::text,
-            t.album::text,
-            t.playlist_count,
-            t.cover_image_url::text,
-            t.apple_music_id::text,
-            (1 - (v.embedding <=> $2::vector))::float AS similarity
-        FROM track_vectors_simgcl v
-        JOIN tracks t ON v.track_key = t.track_key
-        WHERE v.track_key != $1
-        ORDER BY v.embedding <=> $2::vector
+            te.track_key::text,
+            te.title::text,
+            te.artist::text,
+            te.album::text,
+            te.playlist_count,
+            te.cover_image_url::text,
+            te.apple_music_id::text,
+            (1 - (te.embedding <=> $2::vector))::float AS similarity
+        FROM track_embeddings te
+        WHERE te.track_key != $1
+        ORDER BY te.embedding <=> $2::vector
         LIMIT $3
         """,
         track_key, query_row["embedding"], limit

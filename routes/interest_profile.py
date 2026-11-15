@@ -92,9 +92,9 @@ async def recompute_clusters(user_id: str):
         # 최근 저장 50곡 임베딩 조회
         rows = await pool.fetch(
             """
-            SELECT f.track_key, v.embedding
+            SELECT f.track_key, te.embedding
             FROM user_favorites f
-            JOIN track_vectors_simgcl v ON f.track_key = v.track_key
+            JOIN track_embeddings te ON f.track_key = te.track_key
             WHERE f.user_id = $1::uuid
             ORDER BY f.created_at DESC
             LIMIT $2
