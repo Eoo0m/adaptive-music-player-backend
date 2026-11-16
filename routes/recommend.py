@@ -129,15 +129,16 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
         """
         SELECT
             te.track_key::text,
-            te.title::text,
-            te.artist::text,
-            te.album::text,
-            te.cover_image_url::text,
-            te.apple_music_id::text,
-            te.playlist_count,
+            t.title::text,
+            t.artist::text,
+            t.album::text,
+            t.cover_image_url::text,
+            t.apple_music_id::text,
+            t.playlist_count,
             te.embedding::text AS embedding,
             (1 - (te.embedding <=> $1::vector))::float AS ann_sim
         FROM track_embeddings te
+        JOIN tracks t ON t.track_key = te.track_key
         WHERE te.track_key != ALL($2)
         ORDER BY te.embedding <=> $1::vector
         LIMIT $3
