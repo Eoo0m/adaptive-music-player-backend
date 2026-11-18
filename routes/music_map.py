@@ -62,8 +62,9 @@ async def music_map(request: MusicMapRequest, user: dict | None = Depends(get_op
     seed_rows = await pool.fetch(
         """
         SELECT te.track_key::text, te.title::text, te.artist::text, te.album::text,
-               te.cover_image_url::text, te.playlist_count, te.apple_music_id::text, te.embedding::text
+               te.cover_image_url::text, te.playlist_count, t.apple_music_id::text, te.embedding::text
         FROM track_embeddings te
+        JOIN tracks t ON t.track_key = te.track_key
         WHERE te.track_key = ANY($1::text[])
         """,
         request.track_keys,
@@ -119,10 +120,11 @@ async def music_map(request: MusicMapRequest, user: dict | None = Depends(get_op
                (1 - t.dist)::float AS ann_sim
         FROM seeds
         CROSS JOIN LATERAL (
-            SELECT te.track_key, te.title, te.artist, te.album, te.cover_image_url, te.playlist_count, te.apple_music_id,
+            SELECT te.track_key, te.title, te.artist, te.album, te.cover_image_url, te.playlist_count, tr.apple_music_id,
                    te.embedding,
                    te.embedding <=> seeds.seed_emb AS dist
             FROM track_embeddings te
+            JOIN tracks tr ON tr.track_key = te.track_key
             WHERE te.track_key != ALL($3::text[])
             ORDER BY te.embedding <=> seeds.seed_emb
             LIMIT $4
