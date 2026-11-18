@@ -67,7 +67,9 @@ docs/                # 변경 이력, 이슈 기록
 - `search_keywords` — 자동완성용 키워드 + 검색수
 - `user_playlists` — 플리 빌더 저장 플레이리스트
 
-**삭제된 테이블**: `track_embeddings`(통합 테이블, 각 전용 테이블로 대체), `track_vectors_twotower`(미사용), `listening_logs`(미사용), `tmp_cover_url_fix`(임시)
+**삭제된 테이블**: `track_vectors_twotower`(미사용), `listening_logs`(미사용), `tmp_cover_url_fix`(임시)
+
+> `track_embeddings`는 현재도 사용 중 — recommend, music-map, dynamic_streaming 모두 이 테이블 사용
 
 ## 임베딩 테이블 용도
 
@@ -162,7 +164,7 @@ SELECT indexname, indexdef FROM pg_indexes WHERE tablename IN ('track_vectors_si
 ### iOS Swift 앱
 **위치**: `/Users/eomjoonseo/caro/caro_app_swift/`
 - Xcode 프로젝트: `caro_app_swift.xcodeproj`
-- 소스: `caro_app_swift/` (git 없음, Xcode로 직접 관리)
+- 소스: `caro_app_swift/` (git repo: https://github.com/Eoo0m/caro-app-swift)
 - Widget 익스텐션: `CaroWidget/`
 
 **주요 파일**:
