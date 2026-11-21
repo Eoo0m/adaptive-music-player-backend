@@ -88,8 +88,24 @@ LIMIT $3;
 
 > **주의**: WITH 절(CTE) 패턴은 HNSW 인덱스를 못 타는 경우 있음 → 2-step 쿼리 사용.
 
-### 미완료: track_vectors_clip, track_vectors_twotower 전환
+### track_vectors_clip 복사 (2026-11-21~22 완료)
 
-`track_embeddings.projected_embedding`, `itemtower_embedding` 조회는 아직 레거시 테이블 사용.
-분리 테이블(`track_vectors_clip`, `track_vectors_twotower`)은 생성됐으나 코드 전환 미완료.
-배치 UPDATE가 없는 상태라 당장 급하지 않음.
+`track_embeddings.projected_embedding` (512d, ~81,699행) → `track_vectors_clip` 복사.
+
+**실패했던 방법들**:
+- `INSERT INTO track_vectors_clip SELECT ... FROM track_embeddings` 단일 쿼리 → statement_timeout 초과 (512d × 81,699행 ≈ 167MB)
+- asyncpg 배치 스크립트 (로컬/NCP) → PgBouncer 6543 포트가 풀 고갈 (ECHECKOUTTIMEOUT)
+- NCP 서버에서 direct 연결 시도 → Supabase Direct connection이 IPv6 전용이라 NCP(IPv4)에서 불가
+
+**해결 방법**:
+1. Supabase IPv4 Add-on 활성화 ($4/월) → Direct connection(5432 포트) 가능하게 됨
+2. NCP 서버에서 `DIRECT_URL=postgresql://postgres:...@db.yxihvsnrszafmluyjqke.supabase.co:5432/postgres` 로 연결
+3. `SET statement_timeout = 0` 설정 후 200행씩 SELECT → executemany INSERT 배치 반복
+4. `ON CONFLICT (track_key) DO NOTHING`으로 중단/재시작 시 중복 없이 이어서 가능
+
+**스크립트**: `tmp/copy_clip_embeddings.py`
+
+코드 전환도 완료 (2026-11-21):
+- `smart_search.py`: `track_embeddings` → `track_vectors_clip`
+- `interest_profile.py`: projected_embedding 조회 → `track_vectors_clip`
+- `recommend.py`, `dynamic_streaming.py`, `music_map.py`, `playlist_builder.py`: `track_embeddings` → `track_vectors_simgcl`
