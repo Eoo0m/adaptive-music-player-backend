@@ -28,10 +28,10 @@ async def top_tracks(limit: int = 10):
     pool = await get_db_pool()
     rows = await pool.fetch(
         """
-        SELECT te.track_key::text, te.title::text, te.artist::text, te.album::text,
-               te.cover_image_url::text, te.playlist_count
-        FROM track_embeddings te
-        ORDER BY te.playlist_count DESC
+        SELECT t.track_key::text, t.title::text, t.artist::text, t.album::text,
+               t.cover_image_url::text, t.playlist_count
+        FROM tracks t
+        ORDER BY t.playlist_count DESC
         LIMIT $1
         """,
         limit,
@@ -61,9 +61,9 @@ async def music_map(request: MusicMapRequest, user: dict | None = Depends(get_op
     # 1. seed 트랙 조회
     seed_rows = await pool.fetch(
         """
-        SELECT te.track_key::text, te.title::text, te.artist::text, te.album::text,
-               te.cover_image_url::text, te.playlist_count, t.apple_music_id::text, te.embedding::text
-        FROM track_embeddings te
+        SELECT t.track_key::text, t.title::text, t.artist::text, t.album::text,
+               t.cover_image_url::text, t.playlist_count, t.apple_music_id::text, te.embedding::text
+        FROM track_vectors_simgcl te
         JOIN tracks t ON t.track_key = te.track_key
         WHERE te.track_key = ANY($1::text[])
         """,
@@ -120,10 +120,10 @@ async def music_map(request: MusicMapRequest, user: dict | None = Depends(get_op
                (1 - t.dist)::float AS ann_sim
         FROM seeds
         CROSS JOIN LATERAL (
-            SELECT te.track_key, te.title, te.artist, te.album, te.cover_image_url, te.playlist_count, tr.apple_music_id,
+            SELECT te.track_key, tr.title, tr.artist, tr.album, tr.cover_image_url, tr.playlist_count, tr.apple_music_id,
                    te.embedding,
                    te.embedding <=> seeds.seed_emb AS dist
-            FROM track_embeddings te
+            FROM track_vectors_simgcl te
             JOIN tracks tr ON tr.track_key = te.track_key
             WHERE te.track_key != ALL($3::text[])
             ORDER BY te.embedding <=> seeds.seed_emb

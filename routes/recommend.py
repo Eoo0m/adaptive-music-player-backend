@@ -113,7 +113,7 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
 
     # 1. seed 임베딩 조회
     seed_row = await pool.fetchrow(
-        "SELECT embedding::text FROM track_embeddings WHERE track_key = $1",
+        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
         request.track_key
     )
     if not seed_row or not seed_row["embedding"]:
@@ -137,7 +137,7 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
             t.playlist_count,
             te.embedding::text AS embedding,
             (1 - (te.embedding <=> $1::vector))::float AS ann_sim
-        FROM track_embeddings te
+        FROM track_vectors_simgcl te
         JOIN tracks t ON t.track_key = te.track_key
         WHERE te.track_key != ALL($2)
         ORDER BY te.embedding <=> $1::vector

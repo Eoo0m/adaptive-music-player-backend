@@ -37,7 +37,7 @@ async def next_track(request: TrackRequest):
 
     # 현재 곡 임베딩 조회
     row = await pool.fetchrow(
-        "SELECT embedding::text FROM track_embeddings WHERE track_key = $1",
+        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
         request.track_key,
     )
     if not row:
@@ -52,7 +52,7 @@ async def next_track(request: TrackRequest):
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
-            FROM track_embeddings te
+            FROM track_vectors_simgcl te
             JOIN tracks t ON t.track_key = te.track_key
             WHERE te.track_key != $1
               AND te.track_key = ANY($3::text[])
@@ -65,7 +65,7 @@ async def next_track(request: TrackRequest):
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
-            FROM track_embeddings te
+            FROM track_vectors_simgcl te
             JOIN tracks t ON t.track_key = te.track_key
             WHERE te.track_key != $1
             ORDER BY te.embedding <=> $2::vector
@@ -88,7 +88,7 @@ async def dynamic_next(request: TrackRequest):
     pool = await get_db_pool()
 
     row = await pool.fetchrow(
-        "SELECT embedding::text FROM track_embeddings WHERE track_key = $1",
+        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
         request.track_key,
     )
     if not row:
@@ -103,7 +103,7 @@ async def dynamic_next(request: TrackRequest):
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
-            FROM track_embeddings te
+            FROM track_vectors_simgcl te
             JOIN tracks t ON t.track_key = te.track_key
             WHERE te.track_key != $1
               AND te.track_key = ANY($3::text[])
@@ -116,7 +116,7 @@ async def dynamic_next(request: TrackRequest):
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
-            FROM track_embeddings te
+            FROM track_vectors_simgcl te
             JOIN tracks t ON t.track_key = te.track_key
             WHERE te.track_key != $1
             ORDER BY te.embedding <=> $2::vector DESC

@@ -89,7 +89,7 @@ async def _mood_search(projected_embedding_np: np.ndarray, candidates: int, top_
             t.cover_image_url::text,
             t.apple_music_id::text,
             te.projected_embedding::text
-        FROM track_embeddings te
+        FROM track_vectors_clip te
         JOIN tracks t ON te.track_key = t.track_key
         ORDER BY te.projected_embedding <=> $1::vector
         LIMIT $2
