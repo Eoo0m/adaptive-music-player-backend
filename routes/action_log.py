@@ -13,7 +13,7 @@ router = APIRouter()
 
 class ActionLogRequest(BaseModel):
     session_id: str
-    action_type: str  # search | select_from_search | select_from_recommend | favorite | play
+    action_type: str  # search | delete_recent_search | select_from_search | select_from_recommend | favorite_add | favorite_remove | play | pause | next_similar | next_dynamic
     search_query: Optional[str] = None
     search_mode: Optional[str] = None
     selected_track_key: Optional[str] = None
@@ -24,7 +24,18 @@ class ActionLogRequest(BaseModel):
 @router.post("/log-action")
 async def log_action(request: ActionLogRequest, req: Request):
     """유저 행동 로그 저장"""
-    valid_types = {"search", "select_from_search", "select_from_recommend", "favorite", "play"}
+    valid_types = {
+        "search",
+        "delete_recent_search",
+        "select_from_search",
+        "select_from_recommend",
+        "favorite_add",
+        "favorite_remove",
+        "play",
+        "pause",
+        "next_similar",
+        "next_dynamic",
+    }
     if request.action_type not in valid_types:
         raise HTTPException(status_code=400, detail=f"Invalid action_type: {request.action_type}")
 
