@@ -4,7 +4,7 @@
 
 | 테이블 | 설명 |
 |---|---|
-| `tracks` | 트랙 메타 (track_key, title, artist, album, cover_image_url, apple_music_id, playlist_count) |
+| `tracks` | 트랙 메타 (track_key, title, artist, album, cover_image_url, apple_music_id, playlist_count, aliases text[], release_year smallint, genres text[], tags text[]) |
 | `track_embeddings` | SimGCL 64d + CLIP 512d + Two-Tower 128d 통합 (레거시, 현재는 분리 테이블 사용) |
 | `track_vectors_simgcl` | SimGCL embedding 64d. `/next-track`, `/dynamic-next`, `/find-similar-tracks`, `/music-map` 전용 |
 | `track_vectors_clip` | CLIP projected_embedding 512d |

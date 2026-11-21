@@ -55,7 +55,7 @@ docs/                # 변경 이력, 이슈 기록
 | /user-maps | GET/POST | JWT | 뮤직맵 저장/불러오기 |
 
 ## DB Tables
-- `tracks` — 트랙 메타 (track_key, title, artist, album, cover_image_url, apple_music_id, playlist_count)
+- `tracks` — 트랙 메타 (track_key, title, artist, album, cover_image_url, apple_music_id, playlist_count, aliases text[], release_year smallint, genres text[], tags text[])
 - `track_vectors_simgcl` — SimGCL 64d embedding. recommend, music-map, next-track, dynamic-next, interest-profile 전용. HNSW 인덱스 (`vector_cosine_ops`, m=32, ef=200). **기본 ef_search=40 → recommend에서 SET LOCAL hnsw.ef_search=300**
 - `track_vectors_clip` — CLIP 512d projected_embedding. smart-search 무드 검색, interest-profile medoid 프로젝션 전용. HNSW 인덱스 (`vector_cosine_ops`)
 - `keyword_embeddings` — 검색어 OpenAI 임베딩 캐시 (smart-search 속도 최적화)
