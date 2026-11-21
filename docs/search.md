@@ -95,12 +95,42 @@ return np.array(get_openai_embedding_with_retry(query)), False
 
 ---
 
+## 자동완성 debounce
+
+| 클라이언트 | debounce |
+|---|---|
+| iOS (SearchView) | 150ms |
+| 웹 (search.js) | 150ms |
+
+---
+
 ## iOS 자동완성 흐름
 
 ```
-타이핑 (onChange) → 0.25s debounce
+타이핑 (onChange) → 0.15s debounce
     → GET /search-autocomplete?q=...
         → 드롭다운 표시 (최대 8개)
             → 탭 → doSearch() 실행
                 → POST /log-action (search)  ← search_count +1
 ```
+
+---
+
+## 액션 로그 (`/log-action`)
+
+### action_type 목록
+
+| action_type | 발생 시점 | search_query | selected_track_key | extra |
+|---|---|---|---|---|
+| `search` | 검색 실행 | 검색어 | - | - |
+| `delete_recent_search` | 최근 검색어 삭제 | 삭제한 검색어 | - | - |
+| `select_from_search` | 검색결과에서 트랙 탭 | - | 클릭한 트랙 | - |
+| `select_from_recommend` | 추천/유사곡에서 트랙 탭 | - | 클릭한 트랙 | - |
+| `favorite_add` | 찜 추가 | - | 찜한 트랙 | - |
+| `favorite_remove` | 찜 삭제 | - | 찜 취소한 트랙 | - |
+| `play` | 재생 시작 | - | 재생한 트랙 | - |
+| `pause` | 일시정지 | - | 현재 트랙 | - |
+| `next_similar` | 다음 유사곡 버튼 | - | 현재 트랙(from) | - |
+| `next_dynamic` | 다이나믹 버튼 | - | 현재 트랙(from) | - |
+
+`search_count` 증가는 `search` 타입만 해당.
