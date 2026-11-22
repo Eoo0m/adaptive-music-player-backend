@@ -160,40 +160,45 @@ async def recent_plays(limit: int = 20, user: dict | None = Depends(get_optional
         if user_id:
             rows = await pool.fetch(
                 """
-                SELECT DISTINCT ON (l.selected_track_key)
-                    l.selected_track_key AS track_key,
-                    l.created_at,
-                    t.title, t.artist, t.cover_image_url, t.apple_music_id
-                FROM user_action_logs l
-                JOIN tracks t ON t.track_key = l.selected_track_key
-                WHERE l.action_type = 'play'
-                  AND l.user_id = $1::uuid
-                  AND l.selected_track_key IS NOT NULL
-                ORDER BY l.selected_track_key, l.created_at DESC
+                SELECT track_key, created_at, title, artist, cover_image_url, apple_music_id
+                FROM (
+                    SELECT DISTINCT ON (l.selected_track_key)
+                        l.selected_track_key AS track_key,
+                        l.created_at,
+                        t.title, t.artist, t.cover_image_url, t.apple_music_id
+                    FROM user_action_logs l
+                    JOIN tracks t ON t.track_key = l.selected_track_key
+                    WHERE l.action_type = 'play'
+                      AND l.user_id = $1::uuid
+                      AND l.selected_track_key IS NOT NULL
+                    ORDER BY l.selected_track_key, l.created_at DESC
+                ) sub
+                ORDER BY created_at DESC
                 LIMIT $2
                 """,
-                user_id, limit * 3
+                user_id, limit
             )
         else:
             rows = await pool.fetch(
                 """
-                SELECT DISTINCT ON (l.selected_track_key)
-                    l.selected_track_key AS track_key,
-                    l.created_at,
-                    t.title, t.artist, t.cover_image_url, t.apple_music_id
-                FROM user_action_logs l
-                JOIN tracks t ON t.track_key = l.selected_track_key
-                WHERE l.action_type = 'play'
-                  AND l.session_id = $1
-                  AND l.selected_track_key IS NOT NULL
-                ORDER BY l.selected_track_key, l.created_at DESC
+                SELECT track_key, created_at, title, artist, cover_image_url, apple_music_id
+                FROM (
+                    SELECT DISTINCT ON (l.selected_track_key)
+                        l.selected_track_key AS track_key,
+                        l.created_at,
+                        t.title, t.artist, t.cover_image_url, t.apple_music_id
+                    FROM user_action_logs l
+                    JOIN tracks t ON t.track_key = l.selected_track_key
+                    WHERE l.action_type = 'play'
+                      AND l.session_id = $1
+                      AND l.selected_track_key IS NOT NULL
+                    ORDER BY l.selected_track_key, l.created_at DESC
+                ) sub
+                ORDER BY created_at DESC
                 LIMIT $2
                 """,
-                session_id, limit * 3
+                session_id, limit
             )
-
-        # created_at 기준 최신순 정렬 후 limit 적용
-        sorted_rows = sorted(rows, key=lambda r: r["created_at"], reverse=True)[:limit]
 
         tracks = [
             {
@@ -204,7 +209,7 @@ async def recent_plays(limit: int = 20, user: dict | None = Depends(get_optional
                 "apple_music_id": r["apple_music_id"],
                 "played_at": r["created_at"].isoformat(),
             }
-            for r in sorted_rows
+            for r in rows
         ]
         return {"tracks": tracks}
 
