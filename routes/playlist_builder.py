@@ -695,3 +695,44 @@ async def delete_playlist(playlist_id: int, user: dict = Depends(get_current_use
     except Exception as e:
         logger.error(f"[{request_id}] /playlist-builder/delete error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class PlaylistCreateRequest(BaseModel):
+    name: str
+
+
+class PlaylistAddTrackRequest(BaseModel):
+    track_key: str
+
+
+@router.post("/playlist/create")
+async def create_playlist(request: PlaylistCreateRequest, user: dict = Depends(get_current_user)):
+    """새 플레이리스트 생성 (빈 플리)"""
+    if not request.name.strip():
+        raise HTTPException(status_code=400, detail="플레이리스트 이름이 필요합니다.")
+    pool = await get_db_pool()
+    row = await pool.fetchrow(
+        "INSERT INTO user_playlists (user_id, name, track_keys, created_at) VALUES ($1::uuid, $2, $3, NOW()) RETURNING id, created_at",
+        user["user_id"], request.name.strip(), []
+    )
+    return {"success": True, "playlist_id": row["id"], "name": request.name.strip(), "created_at": row["created_at"].isoformat()}
+
+
+@router.post("/playlist/{playlist_id}/add-track")
+async def add_track_to_playlist(playlist_id: int, request: PlaylistAddTrackRequest, user: dict = Depends(get_current_user)):
+    """플레이리스트에 곡 추가"""
+    pool = await get_db_pool()
+    row = await pool.fetchrow(
+        "SELECT track_keys FROM user_playlists WHERE id = $1 AND user_id = $2::uuid",
+        playlist_id, user["user_id"]
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="플레이리스트를 찾을 수 없습니다.")
+    keys = list(row["track_keys"] or [])
+    if request.track_key not in keys:
+        keys.append(request.track_key)
+        await pool.execute(
+            "UPDATE user_playlists SET track_keys = $1 WHERE id = $2",
+            keys, playlist_id
+        )
+    return {"success": True, "track_count": len(keys)}

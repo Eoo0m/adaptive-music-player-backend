@@ -55,6 +55,7 @@ from routes.dynamic_streaming import router as dynamic_streaming_router
 from routes.smart_search import router as smart_search_router, smart_search as _smart_search_fn
 from routes.autocomplete import router as autocomplete_router
 from routes.user_maps import router as user_maps_router
+from routes.comments import router as comments_router
 from telemetry import elapsed_ms, new_request_id, now_ms, request_id_var
 
 # FastAPI 앱 생성
@@ -318,6 +319,7 @@ app.include_router(dynamic_streaming_router)
 app.include_router(smart_search_router)
 app.include_router(autocomplete_router)
 app.include_router(user_maps_router)
+app.include_router(comments_router)
 
 
 # ============== 서버 실행 ==============
