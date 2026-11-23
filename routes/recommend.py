@@ -153,7 +153,7 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
 
     # 3. 클러스터 + 글로벌 풀링 조회
     cluster_row = await pool.fetchrow(
-        "SELECT k, medoids, global_embedding FROM user_interest_clusters WHERE user_id = $1::uuid",
+        "SELECT k, medoids, global_embedding, track_keys FROM user_interest_clusters WHERE user_id = $1::uuid",
         user["user_id"] if user else None
     )
 
@@ -199,6 +199,18 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
     order = np.argsort(-scores)
     sorted_rows = [cand_rows[i] for i in order]
     result = _format_rows(sorted_rows, excluded, target, score_key=None, scores=[float(scores[i]) for i in order])
+
+    # 액션 로그: 어떤 medoid가 추천에 사용됐는지 기록
+    medoid_keys = json.loads(cluster_row["track_keys"]) if isinstance(cluster_row["track_keys"], str) else (cluster_row["track_keys"] or [])
+    if user:
+        await pool.execute(
+            """
+            INSERT INTO user_action_logs (session_id, user_id, action_type, selected_track_key, extra)
+            VALUES ($1, $2::uuid, 'recommend', $3, $4::jsonb)
+            """,
+            rid, user["user_id"], request.track_key,
+            json.dumps({"medoid_track_keys": medoid_keys, "k": int(cluster_row["k"])})
+        )
 
     logger.info(f"[{rid}] total={elapsed_ms(t0):.1f}ms recs={len(result)} mode=dual_attention+global")
     return {"recommendations": result, "mode": "dual_attention", "k": int(cluster_row["k"])}

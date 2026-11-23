@@ -35,6 +35,7 @@ async def log_action(request: ActionLogRequest, req: Request):
         "pause",
         "next_similar",
         "next_dynamic",
+        "recommend",
     }
     if request.action_type not in valid_types:
         raise HTTPException(status_code=400, detail=f"Invalid action_type: {request.action_type}")
