@@ -13,10 +13,12 @@
 | `search_keywords` | 자동완성용 키워드 + 검색수 |
 | `users` | Apple OAuth 유저 |
 | `user_favorites` | 찜 목록 |
-| `user_action_logs` | 행동 로그 (search/play/favorite/select) |
+| `user_action_logs` | 행동 로그 (search/play/favorite/select/recommend) |
+| `user_interest_clusters` | 찜 기반 Ward 클러스터링 결과 (k, medoids 64d, global_embedding 64d, track_keys) |
 | `user_maps` | 취향지도 DB 캐시 |
-| `user_playlists` | 플리 빌더로 저장한 플레이리스트 |
-| `listening_logs` | 재생 로그 |
+| `user_playlists` | 플리 빌더로 저장한 플레이리스트 (track_keys text[]) |
+| `track_comments` | 트랙별 유저 코멘트 (user_id, track_key, text, created_at) — 2026-11-23 추가 |
+| `listening_logs` | 재생 로그 (미사용) |
 
 ---
 
