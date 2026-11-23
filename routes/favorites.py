@@ -133,20 +133,52 @@ async def get_favorites_clustered(user: dict = Depends(get_current_user)):
     ], dtype=np.float32)
 
     Z = linkage(embs, method="ward", metric="euclidean")
-    labels = fcluster(Z, 2.0, criterion="distance")
+    labels = fcluster(Z, 1.5, criterion="distance")
 
-    clusters = {}
+    # label → (track 목록, centroid 임베딩) 매핑
+    cluster_tracks = {}
+    cluster_embs = {}
     for i, lbl in enumerate(labels):
-        clusters.setdefault(int(lbl), []).append(row_to_track(valid_rows[i]))
+        lbl = int(lbl)
+        cluster_tracks.setdefault(lbl, []).append((i, row_to_track(valid_rows[i])))
+        cluster_embs.setdefault(lbl, []).append(embs[i])
+
+    # 각 클러스터의 centroid 계산
+    centroids = {lbl: np.mean(np.stack(e), axis=0) for lbl, e in cluster_embs.items()}
+
+    # 작은 클러스터(1~3곡)를 가장 가까운 큰 클러스터에 병합
+    MIN_SIZE = 4
+    large_ids = {lbl for lbl, t in cluster_tracks.items() if len(t) >= MIN_SIZE}
+    small_ids = {lbl for lbl, t in cluster_tracks.items() if len(t) < MIN_SIZE}
+
+    # 큰 클러스터가 없으면 그냥 모두 반환 (전체 곡 수가 적은 경우)
+    if large_ids:
+        large_centroids = np.stack([centroids[lbl] for lbl in sorted(large_ids)])
+        large_ids_sorted = sorted(large_ids)
+
+        for small_lbl in small_ids:
+            c = centroids[small_lbl]
+            # cosine similarity로 가장 가까운 큰 클러스터 찾기
+            c_norm = c / (np.linalg.norm(c) + 1e-8)
+            lc_norms = large_centroids / (np.linalg.norm(large_centroids, axis=1, keepdims=True) + 1e-8)
+            sims = lc_norms @ c_norm
+            nearest = large_ids_sorted[int(np.argmax(sims))]
+            cluster_tracks[nearest].extend(cluster_tracks[small_lbl])
+            del cluster_tracks[small_lbl]
+
+    # 결과 조립 (cluster_id 재번호 부여)
+    final_clusters = {}
+    for new_id, (lbl, items) in enumerate(sorted(cluster_tracks.items()), start=1):
+        final_clusters[new_id] = [t for _, t in items]
 
     # 임베딩 없는 곡은 마지막 클러스터에 추가
     if no_emb_rows:
-        last_id = max(clusters.keys()) + 1
-        clusters[last_id] = [row_to_track(r) for r in no_emb_rows]
+        last_id = max(final_clusters.keys()) + 1
+        final_clusters[last_id] = [row_to_track(r) for r in no_emb_rows]
 
     result = [
         {"cluster_id": cid, "tracks": tracks}
-        for cid, tracks in sorted(clusters.items())
+        for cid, tracks in sorted(final_clusters.items())
     ]
     return {"clusters": result}
 
