@@ -736,3 +736,44 @@ async def add_track_to_playlist(playlist_id: int, request: PlaylistAddTrackReque
             keys, playlist_id
         )
     return {"success": True, "track_count": len(keys)}
+
+
+class PlaylistRemoveTrackRequest(BaseModel):
+    track_key: str
+
+
+@router.post("/playlist/{playlist_id}/remove-track")
+async def remove_track_from_playlist(playlist_id: int, request: PlaylistRemoveTrackRequest, user: dict = Depends(get_current_user)):
+    """플레이리스트에서 곡 제거"""
+    pool = await get_db_pool()
+    row = await pool.fetchrow(
+        "SELECT track_keys FROM user_playlists WHERE id = $1 AND user_id = $2::uuid",
+        playlist_id, user["user_id"]
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="플레이리스트를 찾을 수 없습니다.")
+    keys = [k for k in (row["track_keys"] or []) if k != request.track_key]
+    await pool.execute(
+        "UPDATE user_playlists SET track_keys = $1 WHERE id = $2",
+        keys, playlist_id
+    )
+    return {"success": True, "track_count": len(keys)}
+
+
+class PlaylistRenameRequest(BaseModel):
+    name: str
+
+
+@router.patch("/playlist/{playlist_id}")
+async def rename_playlist(playlist_id: int, request: PlaylistRenameRequest, user: dict = Depends(get_current_user)):
+    """플레이리스트 이름 변경"""
+    if not request.name.strip():
+        raise HTTPException(status_code=400, detail="이름이 필요합니다.")
+    pool = await get_db_pool()
+    result = await pool.execute(
+        "UPDATE user_playlists SET name = $1 WHERE id = $2 AND user_id = $3::uuid",
+        request.name.strip(), playlist_id, user["user_id"]
+    )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="플레이리스트를 찾을 수 없습니다.")
+    return {"success": True}
