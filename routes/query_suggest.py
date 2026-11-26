@@ -117,6 +117,43 @@ async def _search_tracks_by_emb(proj: np.ndarray, pool, top_k: int = 9) -> list:
     return [cand_data[k] for k in selected_ids if k in cand_data]
 
 
+async def compute_and_cache_suggestions(user_id: str, medoid_embs: np.ndarray, pool):
+    """medoid 임베딩 → query-suggest 계산 → user_query_suggestions upsert"""
+    try:
+        with torch.no_grad():
+            t = torch.tensor(medoid_embs).to(device)
+            medoid_proj = playlist_clip_model.playlist_proj(t).cpu().numpy()
+
+        cap_norm = _caption_embs / (np.linalg.norm(_caption_embs, axis=1, keepdims=True) + 1e-8)
+        med_norm = medoid_proj / (np.linalg.norm(medoid_proj, axis=1, keepdims=True) + 1e-8)
+        sims = (med_norm @ cap_norm.T).mean(axis=0)
+
+        pool_size = min(20, len(sims))
+        top_pool_idx = np.argsort(-sims)[:pool_size]
+        chosen_idx = np.random.choice(top_pool_idx, size=min(MAX_QUERIES, pool_size), replace=False)
+        queries = [str(_caption_texts[i]) for i in chosen_idx]
+
+        chosen_embs = _caption_embs[chosen_idx]
+        track_results = await asyncio.gather(
+            *[_search_tracks_by_emb(chosen_embs[i], pool) for i in range(len(chosen_idx))]
+        )
+
+        suggestions = [{"query": q, "tracks": tracks} for q, tracks in zip(queries, track_results)]
+
+        await pool.execute(
+            """
+            INSERT INTO user_query_suggestions (user_id, suggestions, updated_at)
+            VALUES ($1, $2::jsonb, NOW())
+            ON CONFLICT (user_id) DO UPDATE
+              SET suggestions = EXCLUDED.suggestions, updated_at = NOW()
+            """,
+            user_id, json.dumps(suggestions)
+        )
+        logger.info(f"[query_suggest] cached for user={user_id} queries={queries}")
+    except Exception as e:
+        logger.error(f"[query_suggest] compute_and_cache error user={user_id}: {e}")
+
+
 @router.post("/query-suggest")
 async def query_suggest(request: QuerySuggestRequest):
     """트랙 목록 → 추천 검색 쿼리 + 각 쿼리의 mood 검색 결과 반환"""
@@ -132,7 +169,18 @@ async def query_suggest(request: QuerySuggestRequest):
 
     pool = await get_db_pool()
 
-    # 1. user_interest_clusters 캐시 우선 사용
+    # 1. user_query_suggestions 캐시 우선 반환
+    if request.user_id:
+        cache_row = await pool.fetchrow(
+            "SELECT suggestions FROM user_query_suggestions WHERE user_id = $1",
+            request.user_id,
+        )
+        if cache_row:
+            suggestions = json.loads(cache_row["suggestions"])
+            logger.info(f"[{rid}] cache hit user={request.user_id} total={elapsed_ms(t0):.1f}ms")
+            return {"suggestions": suggestions, "k": len(suggestions)}
+
+    # 2. 캐시 없으면 직접 계산
     medoid_embs = None
     if request.user_id:
         cluster_row = await pool.fetchrow(
@@ -143,44 +191,35 @@ async def query_suggest(request: QuerySuggestRequest):
             medoid_embs = np.array(json.loads(cluster_row["medoids"]), dtype=np.float32)
 
     if medoid_embs is None:
-        # SimGCL 임베딩 조회 → clustering
         rows = await pool.fetch(
             "SELECT track_key, embedding::text FROM track_vectors_simgcl WHERE track_key = ANY($1)",
             request.track_keys,
         )
         if not rows:
             raise HTTPException(status_code=404, detail="No embeddings found for given track_keys")
-
         embs = [json.loads(r["embedding"]) if isinstance(r["embedding"], str) else r["embedding"] for r in rows]
         medoid_embs = _compute_medoids(np.array(embs, dtype=np.float32))
 
-    # 2. playlist_proj → CLIP space
     with torch.no_grad():
         t = torch.tensor(medoid_embs).to(device)
-        medoid_proj = playlist_clip_model.playlist_proj(t).cpu().numpy()  # (k, 512)
+        medoid_proj = playlist_clip_model.playlist_proj(t).cpu().numpy()
 
-    # 4. 캡션 임베딩과 cosine 유사도 → top-k 풀에서 랜덤 선택
     max_q = request.max_queries or MAX_QUERIES
     cap_norm = _caption_embs / (np.linalg.norm(_caption_embs, axis=1, keepdims=True) + 1e-8)
     med_norm = medoid_proj / (np.linalg.norm(medoid_proj, axis=1, keepdims=True) + 1e-8)
-    sims = (med_norm @ cap_norm.T).mean(axis=0)  # (N,)
+    sims = (med_norm @ cap_norm.T).mean(axis=0)
 
-    # 상위 20개 풀에서 max_q개 랜덤 샘플
     pool_size = min(20, len(sims))
     top_pool_idx = np.argsort(-sims)[:pool_size]
     chosen_idx = np.random.choice(top_pool_idx, size=min(max_q, pool_size), replace=False)
     queries = [str(_caption_texts[i]) for i in chosen_idx]
 
-    # 5. 각 캡션 임베딩으로 직접 ANN 검색 병렬 (OpenAI 호출 없음)
     chosen_embs = _caption_embs[chosen_idx]
     track_results = await asyncio.gather(
         *[_search_tracks_by_emb(chosen_embs[i], pool) for i in range(len(chosen_idx))]
     )
 
-    result_items = [
-        {"query": q, "tracks": tracks}
-        for q, tracks in zip(queries, track_results)
-    ]
+    result_items = [{"query": q, "tracks": tracks} for q, tracks in zip(queries, track_results)]
 
     logger.info(f"[{rid}] total={elapsed_ms(t0):.1f}ms k={len(medoid_embs)} queries={queries}")
     return {"suggestions": result_items, "k": len(medoid_embs)}

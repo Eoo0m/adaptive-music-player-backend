@@ -159,6 +159,12 @@ async def recompute_clusters(user_id: str):
 
         logger.info(f"[interest_profile] user={user_id} k={k} medoids={medoid_keys}")
 
+        # query-suggest 캐시 갱신
+        from routes.query_suggest import compute_and_cache_suggestions, _caption_embs
+        if _caption_embs is not None:
+            medoid_arr = np.array(medoid_vectors, dtype=np.float32)
+            await compute_and_cache_suggestions(user_id, medoid_arr, pool)
+
     except Exception as e:
         logger.error(f"[interest_profile] recompute_clusters error user={user_id}: {e}")
 
