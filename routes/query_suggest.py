@@ -179,21 +179,17 @@ async def query_suggest(request: QuerySuggestRequest):
         t = torch.tensor(medoid_embs).to(device)
         medoid_proj = playlist_clip_model.playlist_proj(t).cpu().numpy()  # (k, 512)
 
-    # 4. 캡션 임베딩과 cosine 유사도 → top-k 캡션 선택
+    # 4. 캡션 임베딩과 cosine 유사도 → top-k 풀에서 랜덤 선택
     max_q = request.max_queries or MAX_QUERIES
     cap_norm = _caption_embs / (np.linalg.norm(_caption_embs, axis=1, keepdims=True) + 1e-8)
     med_norm = medoid_proj / (np.linalg.norm(medoid_proj, axis=1, keepdims=True) + 1e-8)
     sims = (med_norm @ cap_norm.T).mean(axis=0)  # (N,)
 
-    top_idx = np.argsort(-sims)
-    queries, seen = [], set()
-    for idx in top_idx:
-        q = str(_caption_texts[idx])
-        if q not in seen:
-            seen.add(q)
-            queries.append(q)
-        if len(queries) >= max_q:
-            break
+    # 상위 20개 풀에서 max_q개 랜덤 샘플
+    pool_size = min(20, len(sims))
+    top_pool_idx = np.argsort(-sims)[:pool_size]
+    chosen_idx = np.random.choice(top_pool_idx, size=min(max_q, pool_size), replace=False)
+    queries = [str(_caption_texts[i]) for i in chosen_idx]
 
     # 5. 각 쿼리별 mood 검색 병렬
     track_results = await asyncio.gather(
