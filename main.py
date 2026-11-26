@@ -56,6 +56,7 @@ from routes.smart_search import router as smart_search_router, smart_search as _
 from routes.autocomplete import router as autocomplete_router
 from routes.user_maps import router as user_maps_router
 from routes.comments import router as comments_router
+from routes.query_suggest import router as query_suggest_router, set_taxonomy_state
 from telemetry import elapsed_ms, new_request_id, now_ms, request_id_var
 
 # FastAPI 앱 생성
@@ -186,6 +187,58 @@ async def startup_event():
             logger.info(f"  ✅ Smart search warmed up ({time.time() - keyword_warmup_start:.2f}s)")
         except Exception as e:
             logger.warning(f"  ⚠️  Smart search warmup failed (non-critical): {str(e)}")
+
+        # 5. taxonomy 태그 임베딩 로드 → query_suggest 초기화
+        logger.info("  ⏳ Loading taxonomy tag embeddings for query-suggest...")
+        tax_start = time.time()
+        try:
+            import json as _json
+            import os as _os
+            import numpy as _np
+            from utils import openai_client as _oai
+
+            _tax_path = _os.path.join(_os.path.dirname(__file__), "taxonomy.json")
+            _tax_cache = _os.path.join(_os.path.dirname(__file__), "tag_proj_cache.npy")
+            _tax_names_cache = _os.path.join(_os.path.dirname(__file__), "tag_names_cache.npy")
+
+            with open(_tax_path) as f:
+                _tax = _json.load(f)["taxonomy"]
+
+            _tag_names, _tag_cats = [], []
+            for _cat, _tags in _tax.items():
+                for _tag in _tags:
+                    _tag_names.append(_tag)
+                    _tag_cats.append(_cat)
+
+            if _os.path.exists(_tax_cache) and _os.path.exists(_tax_names_cache):
+                _tag_proj = _np.load(_tax_cache)
+                logger.info(f"  ✅ Loaded cached tag projections ({_tag_proj.shape})")
+            else:
+                # OpenAI 임베딩 → caption_proj
+                _tag_embs = []
+                _BATCH = 512
+                for _i in range(0, len(_tag_names), _BATCH):
+                    _batch = _tag_names[_i:_i + _BATCH]
+                    _res = _oai.embeddings.create(model="text-embedding-3-large", input=_batch)
+                    _tag_embs.extend([d.embedding for d in _res.data])
+                _tag_embs_np = _np.array(_tag_embs, dtype=_np.float32)
+
+                import torch as _torch
+                _tag_proj_list = []
+                with _torch.no_grad():
+                    for _i in range(0, len(_tag_embs_np), 512):
+                        _b = _torch.tensor(_tag_embs_np[_i:_i + 512]).to(device)
+                        _tag_proj_list.append(playlist_clip_model.caption_proj(_b).cpu().numpy())
+                _tag_proj = _np.vstack(_tag_proj_list)
+
+                _np.save(_tax_cache, _tag_proj)
+                _np.save(_tax_names_cache, _np.array(_tag_names))
+                logger.info(f"  ✅ Tag projections computed & cached ({_tag_proj.shape})")
+
+            set_taxonomy_state(_tag_proj, _tag_names, _tag_cats)
+            logger.info(f"  ✅ Query-suggest taxonomy loaded ({time.time() - tax_start:.2f}s, {len(_tag_names)} tags)")
+        except Exception as e:
+            logger.warning(f"  ⚠️  Taxonomy load failed (non-critical): {str(e)}")
 
         # Keep-Alive 백그라운드 작업 시작
         keep_alive_task = asyncio.create_task(keep_alive_ping())
@@ -320,6 +373,7 @@ app.include_router(smart_search_router)
 app.include_router(autocomplete_router)
 app.include_router(user_maps_router)
 app.include_router(comments_router)
+app.include_router(query_suggest_router)
 
 
 # ============== 서버 실행 ==============
