@@ -6,10 +6,10 @@
   2. Ward Hierarchical Clustering → medoid 선택
   3. medoid → playlist_proj → CLIP shared space (512d)
   4. 플리 캡션 임베딩들(caption_embs.npy)과 cosine 유사도
-  5. top-k 캡션 선택 → 각 캡션 임베딩으로 직접 ANN + MMR (OpenAI 호출 없음)
+  5. top-40 풀에서 20개 선택 → user_query_suggestions에 쿼리 텍스트만 저장
+  6. 반환 시 랜덤 3개 뽑아 query_mood_cache에서 트랙 조회
 """
 
-import asyncio
 import json
 import logging
 import numpy as np
@@ -22,7 +22,6 @@ from scipy.cluster.hierarchy import fcluster, linkage
 
 from database import get_db_pool
 from models import playlist_clip_model, device
-from utils import mmr_rerank
 from telemetry import elapsed_ms, get_request_id, now_ms
 
 logger = logging.getLogger(__name__)
@@ -31,6 +30,7 @@ router = APIRouter()
 
 ALPHA = 2.0
 MAX_QUERIES = 3
+CACHE_SIZE = 20
 
 # 서버 시작 시 main.py에서 주입
 _caption_embs: Optional[np.ndarray] = None   # (N, 512)
@@ -45,7 +45,7 @@ def set_caption_state(embs: np.ndarray, texts: np.ndarray):
 
 class QuerySuggestRequest(BaseModel):
     track_keys: List[str]
-    user_id: Optional[str] = None   # 있으면 user_interest_clusters 캐시 우선 사용
+    user_id: Optional[str] = None
     max_queries: Optional[int] = MAX_QUERIES
 
 
@@ -74,73 +74,26 @@ def _compute_medoids(embeddings: np.ndarray) -> np.ndarray:
     return np.array(medoids, dtype=np.float32)
 
 
-async def _search_tracks_by_emb(proj: np.ndarray, pool, top_k: int = 9) -> list:
-    """caption_embs의 512d 임베딩 → ANN + MMR → 트랙 목록 (OpenAI 호출 없음)"""
-    rows = await pool.fetch(
-        """
-        SELECT
-            te.track_key::text,
-            t.title::text,
-            t.artist::text,
-            t.cover_image_url::text,
-            t.apple_music_id::text,
-            t.playlist_count,
-            te.projected_embedding::text
-        FROM track_vectors_clip te
-        JOIN tracks t ON te.track_key = t.track_key
-        ORDER BY te.projected_embedding <=> $1::vector
-        LIMIT 80
-        """,
-        str(proj.tolist()),
-    )
-    if not rows:
-        return []
+def _select_queries(medoid_embs: np.ndarray, size: int) -> list:
+    """medoid 임베딩 → caption 유사도 → top-40 풀에서 size개 랜덤 선택."""
+    with torch.no_grad():
+        t = torch.tensor(medoid_embs).to(device)
+        medoid_proj = playlist_clip_model.playlist_proj(t).cpu().numpy()
 
-    cand_ids, cand_embs, cand_data = [], [], {}
-    for r in rows:
-        emb_str = r["projected_embedding"]
-        if emb_str:
-            emb = np.array(json.loads(emb_str), dtype=np.float32)
-            cand_ids.append(r["track_key"])
-            cand_embs.append(emb)
-            cand_data[r["track_key"]] = {
-                "track_key": r["track_key"],
-                "track": r["title"],
-                "track_name": r["title"],
-                "artist": r["artist"],
-                "cover_image_url": r["cover_image_url"],
-                "apple_music_id": r["apple_music_id"],
-                "playlist_count": r["playlist_count"],
-            }
+    cap_norm = _caption_embs / (np.linalg.norm(_caption_embs, axis=1, keepdims=True) + 1e-8)
+    med_norm = medoid_proj / (np.linalg.norm(medoid_proj, axis=1, keepdims=True) + 1e-8)
+    sims = (med_norm @ cap_norm.T).mean(axis=0)
 
-    selected_ids, _ = mmr_rerank(proj, np.array(cand_embs), cand_ids, top_k=top_k, lambda_param=0.7)
-    return [cand_data[k] for k in selected_ids if k in cand_data]
+    pool_size = min(40, len(sims))
+    top_pool_idx = np.argsort(-sims)[:pool_size]
+    chosen_idx = np.random.choice(top_pool_idx, size=min(size, pool_size), replace=False)
+    return [str(_caption_texts[i]) for i in chosen_idx]
 
 
 async def compute_and_cache_suggestions(user_id: str, medoid_embs: np.ndarray, pool):
-    """medoid 임베딩 → query-suggest 계산 → user_query_suggestions upsert"""
+    """medoid 임베딩 → 쿼리 20개 선택 → user_query_suggestions에 텍스트만 저장"""
     try:
-        with torch.no_grad():
-            t = torch.tensor(medoid_embs).to(device)
-            medoid_proj = playlist_clip_model.playlist_proj(t).cpu().numpy()
-
-        cap_norm = _caption_embs / (np.linalg.norm(_caption_embs, axis=1, keepdims=True) + 1e-8)
-        med_norm = medoid_proj / (np.linalg.norm(medoid_proj, axis=1, keepdims=True) + 1e-8)
-        sims = (med_norm @ cap_norm.T).mean(axis=0)
-
-        CACHE_SIZE = 20
-        pool_size = min(40, len(sims))
-        top_pool_idx = np.argsort(-sims)[:pool_size]
-        chosen_idx = np.random.choice(top_pool_idx, size=min(CACHE_SIZE, pool_size), replace=False)
-        queries = [str(_caption_texts[i]) for i in chosen_idx]
-
-        chosen_embs = _caption_embs[chosen_idx]
-        track_results = await asyncio.gather(
-            *[_search_tracks_by_emb(chosen_embs[i], pool) for i in range(len(chosen_idx))]
-        )
-
-        suggestions = [{"query": q, "tracks": tracks} for q, tracks in zip(queries, track_results)]
-
+        queries = _select_queries(medoid_embs, CACHE_SIZE)
         await pool.execute(
             """
             INSERT INTO user_query_suggestions (user_id, suggestions, updated_at)
@@ -148,7 +101,7 @@ async def compute_and_cache_suggestions(user_id: str, medoid_embs: np.ndarray, p
             ON CONFLICT (user_id) DO UPDATE
               SET suggestions = EXCLUDED.suggestions, updated_at = NOW()
             """,
-            user_id, json.dumps(suggestions)
+            user_id, json.dumps(queries)
         )
         logger.info(f"[query_suggest] cached for user={user_id} queries={queries}")
     except Exception as e:
@@ -169,61 +122,54 @@ async def query_suggest(request: QuerySuggestRequest):
     logger.info(f"[{rid}] /query-suggest tracks={len(request.track_keys)}")
 
     pool = await get_db_pool()
+    max_q = request.max_queries or MAX_QUERIES
 
-    # 1. user_query_suggestions 캐시 우선 반환
+    # 1. user_query_suggestions 캐시에서 쿼리 텍스트 조회
+    queries = None
     if request.user_id:
         cache_row = await pool.fetchrow(
             "SELECT suggestions FROM user_query_suggestions WHERE user_id = $1",
             request.user_id,
         )
         if cache_row:
-            all_suggestions = json.loads(cache_row["suggestions"])
-            max_q = request.max_queries or MAX_QUERIES
-            chosen = np.random.choice(len(all_suggestions), size=min(max_q, len(all_suggestions)), replace=False)
-            suggestions = [all_suggestions[i] for i in chosen]
-            logger.info(f"[{rid}] cache hit user={request.user_id} total={elapsed_ms(t0):.1f}ms")
-            return {"suggestions": suggestions, "k": len(suggestions)}
+            all_queries = json.loads(cache_row["suggestions"])
+            chosen = np.random.choice(len(all_queries), size=min(max_q, len(all_queries)), replace=False)
+            queries = [all_queries[i] for i in chosen]
 
     # 2. 캐시 없으면 직접 계산
-    medoid_embs = None
-    if request.user_id:
-        cluster_row = await pool.fetchrow(
-            "SELECT medoids::text FROM user_interest_clusters WHERE user_id = $1",
-            request.user_id,
-        )
-        if cluster_row and cluster_row["medoids"]:
-            medoid_embs = np.array(json.loads(cluster_row["medoids"]), dtype=np.float32)
+    if queries is None:
+        medoid_embs = None
+        if request.user_id:
+            cluster_row = await pool.fetchrow(
+                "SELECT medoids::text FROM user_interest_clusters WHERE user_id = $1",
+                request.user_id,
+            )
+            if cluster_row and cluster_row["medoids"]:
+                medoid_embs = np.array(json.loads(cluster_row["medoids"]), dtype=np.float32)
 
-    if medoid_embs is None:
-        rows = await pool.fetch(
-            "SELECT track_key, embedding::text FROM track_vectors_simgcl WHERE track_key = ANY($1)",
-            request.track_keys,
-        )
-        if not rows:
-            raise HTTPException(status_code=404, detail="No embeddings found for given track_keys")
-        embs = [json.loads(r["embedding"]) if isinstance(r["embedding"], str) else r["embedding"] for r in rows]
-        medoid_embs = _compute_medoids(np.array(embs, dtype=np.float32))
+        if medoid_embs is None:
+            rows = await pool.fetch(
+                "SELECT track_key, embedding::text FROM track_vectors_simgcl WHERE track_key = ANY($1)",
+                request.track_keys,
+            )
+            if not rows:
+                raise HTTPException(status_code=404, detail="No embeddings found for given track_keys")
+            embs = [json.loads(r["embedding"]) if isinstance(r["embedding"], str) else r["embedding"] for r in rows]
+            medoid_embs = _compute_medoids(np.array(embs, dtype=np.float32))
 
-    with torch.no_grad():
-        t = torch.tensor(medoid_embs).to(device)
-        medoid_proj = playlist_clip_model.playlist_proj(t).cpu().numpy()
+        queries = _select_queries(medoid_embs, max_q)
 
-    max_q = request.max_queries or MAX_QUERIES
-    cap_norm = _caption_embs / (np.linalg.norm(_caption_embs, axis=1, keepdims=True) + 1e-8)
-    med_norm = medoid_proj / (np.linalg.norm(medoid_proj, axis=1, keepdims=True) + 1e-8)
-    sims = (med_norm @ cap_norm.T).mean(axis=0)
-
-    pool_size = min(20, len(sims))
-    top_pool_idx = np.argsort(-sims)[:pool_size]
-    chosen_idx = np.random.choice(top_pool_idx, size=min(max_q, pool_size), replace=False)
-    queries = [str(_caption_texts[i]) for i in chosen_idx]
-
-    chosen_embs = _caption_embs[chosen_idx]
-    track_results = await asyncio.gather(
-        *[_search_tracks_by_emb(chosen_embs[i], pool) for i in range(len(chosen_idx))]
+    # 3. query_mood_cache에서 트랙 조회
+    cache_rows = await pool.fetch(
+        "SELECT query, tracks FROM query_mood_cache WHERE query = ANY($1)",
+        queries,
     )
+    track_map = {r["query"]: json.loads(r["tracks"]) for r in cache_rows}
 
-    result_items = [{"query": q, "tracks": tracks} for q, tracks in zip(queries, track_results)]
+    result_items = [
+        {"query": q, "tracks": track_map.get(q, [])}
+        for q in queries
+    ]
 
-    logger.info(f"[{rid}] total={elapsed_ms(t0):.1f}ms k={len(medoid_embs)} queries={queries}")
-    return {"suggestions": result_items, "k": len(medoid_embs)}
+    logger.info(f"[{rid}] total={elapsed_ms(t0):.1f}ms queries={queries}")
+    return {"suggestions": result_items, "k": len(result_items)}

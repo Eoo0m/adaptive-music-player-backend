@@ -72,6 +72,7 @@ class SmartSearchRequest(BaseModel):
     mood_top_k: Optional[int] = 40
     mood_candidates: Optional[int] = 100
     mmr_lambda: Optional[float] = 0.7
+    user_id: Optional[str] = None
 
 
 async def _mood_search(projected_embedding_np: np.ndarray, candidates: int, top_k: int, mmr_lambda: float):
@@ -139,6 +140,54 @@ async def _mood_search(projected_embedding_np: np.ndarray, candidates: int, top_
     return results
 
 
+async def _query_suggest_for_search(search_proj: np.ndarray, user_id: Optional[str], pool) -> list:
+    """검색어 임베딩 + user medoid 하이브리드 → query_mood_cache에서 top 3 쿼리+트랙 반환"""
+    try:
+        from routes.query_suggest import _caption_embs, _caption_texts
+
+        if _caption_embs is None:
+            return []
+
+        # user medoid 조회
+        medoid_proj = None
+        if user_id:
+            row = await pool.fetchrow(
+                "SELECT medoids::text FROM user_interest_clusters WHERE user_id = $1",
+                user_id,
+            )
+            if row and row["medoids"]:
+                import json as _json
+                medoid_embs = np.array(_json.loads(row["medoids"]), dtype=np.float32)
+                with torch.no_grad():
+                    t = torch.tensor(medoid_embs).to(device)
+                    medoid_proj = playlist_clip_model.playlist_proj(t).cpu().numpy()  # (k, 512)
+
+        # caption 유사도: 검색어 0.5 + medoid 평균 0.5 (medoid 없으면 검색어만)
+        cap_norm = _caption_embs / (np.linalg.norm(_caption_embs, axis=1, keepdims=True) + 1e-8)
+        q_norm = search_proj / (np.linalg.norm(search_proj) + 1e-8)
+        sims = cap_norm @ q_norm  # (N,)
+
+        if medoid_proj is not None:
+            med_norm = medoid_proj / (np.linalg.norm(medoid_proj, axis=1, keepdims=True) + 1e-8)
+            med_sims = (med_norm @ cap_norm.T).mean(axis=0)
+            sims = 0.5 * sims + 0.5 * med_sims
+
+        top_idx = np.argsort(-sims)[:3]
+        queries = [str(_caption_texts[i]) for i in top_idx]
+
+        # query_mood_cache에서 트랙 조회
+        cache_rows = await pool.fetch(
+            "SELECT query, tracks FROM query_mood_cache WHERE query = ANY($1)",
+            queries,
+        )
+        track_map = {r["query"]: json_module.loads(r["tracks"]) for r in cache_rows}
+
+        return [{"query": q, "tracks": track_map.get(q, [])} for q in queries]
+    except Exception as e:
+        logger.warning(f"[smart-search] query_suggest_for_search error: {e}")
+        return []
+
+
 async def _get_embedding(query: str, pool) -> tuple[np.ndarray, bool]:
     """캐시된 임베딩 조회, 없으면 OpenAI 호출. (embedding_np, cache_hit) 반환"""
     row = await pool.fetchrow(
@@ -184,15 +233,18 @@ async def smart_search(request: SmartSearchRequest):
 
         logger.info(f"[{request_id}] /smart-search intent={'mood' if is_mood else 'non'} mood_prob={mood_prob:.3f}")
 
-        # 3. 엔티티 + 무드 병렬
+        # 3. 엔티티 + 무드 + 쿼리 추천 병렬
         entity_coro = search_tracks_by_title_raw(query, match_count=request.entity_limit)
         mood_coro = (
             _mood_search(projected_np, request.mood_candidates, request.mood_top_k, request.mmr_lambda)
             if is_mood
             else asyncio.sleep(0)
         )
+        query_suggest_coro = _query_suggest_for_search(projected_np, request.user_id, pool)
 
-        entity_rows, mood_result = await asyncio.gather(entity_coro, mood_coro)
+        entity_rows, mood_result, query_suggestions = await asyncio.gather(
+            entity_coro, mood_coro, query_suggest_coro
+        )
 
         # 엔티티 포맷
         entity_results = [
@@ -216,7 +268,7 @@ async def smart_search(request: SmartSearchRequest):
         total_ms = elapsed_ms(start_ms)
         logger.info(
             f"[{request_id}] /smart-search done total={total_ms:.1f}ms "
-            f"entity={len(entity_results)} mood={len(mood_results)}"
+            f"entity={len(entity_results)} mood={len(mood_results)} suggestions={len(query_suggestions)}"
         )
 
         return {
@@ -225,6 +277,7 @@ async def smart_search(request: SmartSearchRequest):
             "mood_prob": round(mood_prob, 3),
             "entity_results": entity_results,
             "mood_results": mood_results,
+            "query_suggestions": query_suggestions,
         }
 
     except Exception as e:

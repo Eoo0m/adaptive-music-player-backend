@@ -83,9 +83,24 @@ return np.array(get_openai_embedding_with_retry(query)), False
   "is_mood": true,
   "mood_prob": 0.923,
   "entity_results": [...],
-  "mood_results": [...]
+  "mood_results": [...],
+  "query_suggestions": [
+    {"query": "chill vibes", "tracks": [...]},
+    {"query": "late night jazz", "tracks": [...]},
+    {"query": "study beats", "tracks": [...]}
+  ]
 }
 ```
+
+### 검색 후 쿼리 추천 (`query_suggestions`)
+
+검색어 임베딩(512d)과 user medoid 임베딩을 하이브리드 스코어로 caption 유사도 계산 → `query_mood_cache`에서 top 3 쿼리+트랙 반환. 별도 API 호출 없이 `smart-search`와 병렬 실행되므로 추가 지연 없음.
+
+- `user_id` 없으면 검색어 임베딩만으로 계산
+- `user_id` 있으면 검색어 50% + medoid 평균 50% 하이브리드
+- `query_mood_cache`에 없는 쿼리는 빈 tracks 반환
+
+**요청 파라미터 추가**: `user_id: Optional[str]`
 
 ---
 

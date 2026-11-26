@@ -18,6 +18,8 @@
 | `user_maps` | 취향지도 DB 캐시 |
 | `user_playlists` | 플리 빌더로 저장한 플레이리스트 (track_keys text[]) |
 | `track_comments` | 트랙별 유저 코멘트 (user_id, track_key, text, created_at) — 2026-11-23 추가 |
+| `query_mood_cache` | 쿼리 텍스트 → 트랙 목록 사전 계산 캐시 (query TEXT PK, tracks JSONB). 로컬 `build_query_mood_cache.py`로 2042개 쿼리 미리 계산 — 2026-11-26 추가 |
+| `user_query_suggestions` | 유저별 추천 쿼리 20개 텍스트 저장 (user_id TEXT PK, suggestions JSONB). interest-profile 갱신 시 자동 업데이트 — 2026-11-26 추가 |
 | `listening_logs` | 재생 로그 (미사용) |
 
 ---
