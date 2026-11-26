@@ -128,9 +128,10 @@ async def compute_and_cache_suggestions(user_id: str, medoid_embs: np.ndarray, p
         med_norm = medoid_proj / (np.linalg.norm(medoid_proj, axis=1, keepdims=True) + 1e-8)
         sims = (med_norm @ cap_norm.T).mean(axis=0)
 
-        pool_size = min(20, len(sims))
+        CACHE_SIZE = 20
+        pool_size = min(40, len(sims))
         top_pool_idx = np.argsort(-sims)[:pool_size]
-        chosen_idx = np.random.choice(top_pool_idx, size=min(MAX_QUERIES, pool_size), replace=False)
+        chosen_idx = np.random.choice(top_pool_idx, size=min(CACHE_SIZE, pool_size), replace=False)
         queries = [str(_caption_texts[i]) for i in chosen_idx]
 
         chosen_embs = _caption_embs[chosen_idx]
@@ -176,7 +177,10 @@ async def query_suggest(request: QuerySuggestRequest):
             request.user_id,
         )
         if cache_row:
-            suggestions = json.loads(cache_row["suggestions"])
+            all_suggestions = json.loads(cache_row["suggestions"])
+            max_q = request.max_queries or MAX_QUERIES
+            chosen = np.random.choice(len(all_suggestions), size=min(max_q, len(all_suggestions)), replace=False)
+            suggestions = [all_suggestions[i] for i in chosen]
             logger.info(f"[{rid}] cache hit user={request.user_id} total={elapsed_ms(t0):.1f}ms")
             return {"suggestions": suggestions, "k": len(suggestions)}
 
