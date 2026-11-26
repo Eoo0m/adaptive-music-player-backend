@@ -6,7 +6,7 @@
   2. Ward Hierarchical Clustering → medoid 선택
   3. medoid → playlist_proj → CLIP shared space (512d)
   4. 플리 캡션 임베딩들(caption_embs.npy)과 cosine 유사도
-  5. top-k 캡션 선택 → 각 캡션으로 mood 검색 (ANN + MMR)
+  5. top-k 캡션 선택 → 각 캡션 임베딩으로 직접 ANN + MMR (OpenAI 호출 없음)
 """
 
 import asyncio
@@ -22,7 +22,7 @@ from scipy.cluster.hierarchy import fcluster, linkage
 
 from database import get_db_pool
 from models import playlist_clip_model, device
-from utils import get_openai_embedding_with_retry, mmr_rerank
+from utils import mmr_rerank
 from telemetry import elapsed_ms, get_request_id, now_ms
 
 logger = logging.getLogger(__name__)
@@ -74,28 +74,8 @@ def _compute_medoids(embeddings: np.ndarray) -> np.ndarray:
     return np.array(medoids, dtype=np.float32)
 
 
-async def _mood_search_for_query(query: str, pool, top_k: int = 9) -> list:
-    """쿼리 텍스트 → OpenAI 임베딩 → CLIP proj → ANN + MMR → 트랙 목록"""
-    row = await pool.fetchrow(
-        "SELECT embedding::text FROM keyword_embeddings WHERE keyword = $1",
-        query.lower()
-    )
-    if row and row["embedding"]:
-        raw_emb = np.array(json.loads(row["embedding"]), dtype=np.float32)
-    else:
-        raw_emb = np.array(get_openai_embedding_with_retry(query), dtype=np.float32)
-        try:
-            await pool.execute(
-                "INSERT INTO keyword_embeddings (keyword, embedding) VALUES ($1, $2::vector) ON CONFLICT DO NOTHING",
-                query.lower(), str(raw_emb.tolist())
-            )
-        except Exception:
-            pass
-
-    with torch.no_grad():
-        t = torch.tensor(raw_emb).unsqueeze(0).to(device)
-        proj = playlist_clip_model.caption_proj(t).cpu().numpy()[0]  # (512,)
-
+async def _search_tracks_by_emb(proj: np.ndarray, pool, top_k: int = 9) -> list:
+    """caption_embs의 512d 임베딩 → ANN + MMR → 트랙 목록 (OpenAI 호출 없음)"""
     rows = await pool.fetch(
         """
         SELECT
@@ -191,9 +171,10 @@ async def query_suggest(request: QuerySuggestRequest):
     chosen_idx = np.random.choice(top_pool_idx, size=min(max_q, pool_size), replace=False)
     queries = [str(_caption_texts[i]) for i in chosen_idx]
 
-    # 5. 각 쿼리별 mood 검색 병렬
+    # 5. 각 캡션 임베딩으로 직접 ANN 검색 병렬 (OpenAI 호출 없음)
+    chosen_embs = _caption_embs[chosen_idx]
     track_results = await asyncio.gather(
-        *[_mood_search_for_query(q, pool) for q in queries]
+        *[_search_tracks_by_emb(chosen_embs[i], pool) for i in range(len(chosen_idx))]
     )
 
     result_items = [
