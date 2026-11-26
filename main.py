@@ -43,7 +43,7 @@ logger.info(f"🚀 Starting Adaptive Music Player Backend - Version: {APP_VERSIO
 from database import get_db_pool
 import database
 from utils import openai_client
-from models import playlist_clip_model
+from models import playlist_clip_model, device
 from routes.recommend import router as recommend_router
 from routes.interest_profile import router as interest_profile_router
 from routes.action_log import router as action_log_router
