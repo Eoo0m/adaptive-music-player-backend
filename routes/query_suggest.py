@@ -82,12 +82,13 @@ def _compute_medoids(embeddings: np.ndarray) -> np.ndarray:
 
 
 def _build_queries(medoid_proj: np.ndarray, max_queries: int) -> list[str]:
-    """medoid CLIP 임베딩 → taxonomy 태그 유사도 → 카테고리 혼합 쿼리."""
+    """medoid CLIP 임베딩 → taxonomy 태그 유사도 → genre + 다른 카테고리 조합 쿼리."""
     tag_norm    = _tag_proj / (np.linalg.norm(_tag_proj,    axis=1, keepdims=True) + 1e-8)
     medoid_norm = medoid_proj / (np.linalg.norm(medoid_proj, axis=1, keepdims=True) + 1e-8)
     sims = (medoid_norm @ tag_norm.T).mean(axis=0)  # (num_tags,)
 
-    top_global = np.argsort(-sims)[:TOP_K_GLOBAL]
+    # genre 포함 보장을 위해 충분히 넓게 탐색
+    top_global = np.argsort(-sims)[:TOP_K_GLOBAL * 3]
 
     cat_best: dict[str, tuple[str, float]] = {}
     for idx in top_global:
@@ -96,24 +97,24 @@ def _build_queries(medoid_proj: np.ndarray, max_queries: int) -> list[str]:
         if cat not in cat_best or score > cat_best[cat][1]:
             cat_best[cat] = (_tag_names[idx], score)
 
-    ranked_cats = [cat for cat, _ in sorted(cat_best.items(), key=lambda x: -x[1][1])]
+    if "genre" not in cat_best:
+        return []
 
-    def _ordered(cat_a: str, cat_b: str) -> tuple[str, str]:
-        pos_a = CAT_ORDER.index(cat_a) if cat_a in CAT_ORDER else len(CAT_ORDER)
-        pos_b = CAT_ORDER.index(cat_b) if cat_b in CAT_ORDER else len(CAT_ORDER)
-        tag_a, tag_b = cat_best[cat_a][0], cat_best[cat_b][0]
-        return (tag_a, tag_b) if pos_a <= pos_b else (tag_b, tag_a)
+    genre_tag = cat_best["genre"][0]
+    # genre 제외한 나머지 카테고리를 유사도 내림차순으로 정렬
+    other_cats = [cat for cat, _ in sorted(
+        ((c, v) for c, v in cat_best.items() if c != "genre"),
+        key=lambda x: -x[1][1]
+    )]
 
     queries, seen = [], set()
-    for i in range(len(ranked_cats)):
-        for j in range(i + 1, len(ranked_cats)):
-            first, second = _ordered(ranked_cats[i], ranked_cats[j])
-            pair = (first, second)
-            if pair not in seen:
-                seen.add(pair)
-                queries.append(f"{first} {second}")
-            if len(queries) >= max_queries:
-                break
+    for cat in other_cats:
+        other_tag = cat_best[cat][0]
+        # CAT_ORDER 기준: genre는 항상 뒤
+        pair = (other_tag, genre_tag)
+        if pair not in seen:
+            seen.add(pair)
+            queries.append(f"{other_tag} {genre_tag}")
         if len(queries) >= max_queries:
             break
 
