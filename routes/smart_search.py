@@ -35,7 +35,7 @@ async def search_tracks_by_title_raw(query_text: str, match_count: int = 10):
     t0 = now_ms()
     pool = await get_db_pool()
     rows = await pool.fetch(
-        """
+        f"""
         SELECT
             id,
             track_key::text,
@@ -80,7 +80,7 @@ async def _mood_search(projected_embedding_np: np.ndarray, candidates: int, top_
     """CLIP projected_embedding 기반 무드 검색 + MMR"""
     pool = await get_db_pool()
     rows = await pool.fetch(
-        """
+        f"""
         SELECT
             te.track_key::text,
             t.title::text,

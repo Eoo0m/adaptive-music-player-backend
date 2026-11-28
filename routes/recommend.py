@@ -127,7 +127,7 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
     t_ann = now_ms()
     exclude_keys = list(excluded | {request.track_key})
     rows = await pool.fetch(
-        """
+        f"""
         SELECT
             te.track_key::text,
             t.title::text,

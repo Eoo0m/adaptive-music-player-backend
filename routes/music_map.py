@@ -28,7 +28,7 @@ async def top_tracks(limit: int = 10):
     """저장수 높은 트랙 반환 (찜이 없을 때 취향 지도 seed용)"""
     pool = await get_db_pool()
     rows = await pool.fetch(
-        """
+        f"""
         SELECT t.track_key::text, t.title::text, t.artist::text, t.album::text,
                t.cover_image_url::text, t.playlist_count
         FROM {T} t
@@ -61,7 +61,7 @@ async def music_map(request: MusicMapRequest, user: dict | None = Depends(get_op
 
     # 1. seed 트랙 조회
     seed_rows = await pool.fetch(
-        """
+        f"""
         SELECT t.track_key::text, t.title::text, t.artist::text, t.album::text,
                t.cover_image_url::text, t.playlist_count, t.apple_music_id::text, te.embedding::text
         FROM {TV_SIMGCL} te
@@ -108,7 +108,7 @@ async def music_map(request: MusicMapRequest, user: dict | None = Depends(get_op
     seed_emb_strs = [str(seed_embs[k].tolist()) for k in seed_keys_found]
 
     fill_rows = await pool.fetch(
-        """
+        f"""
         WITH seeds(seed_key, seed_emb) AS (
             SELECT s.seed_key, s.seed_emb::vector
             FROM unnest($1::text[], $2::text[]) AS s(seed_key, seed_emb)
