@@ -61,7 +61,7 @@ async def fetch_keyword_candidates(keyword: str, limit: int = 100):
 
     pool = await get_db_pool()
     rows = await pool.fetch(
-        """
+        f"""
         SELECT
             t.track_key::text,
             t.title::text,
@@ -110,7 +110,7 @@ async def fetch_similar_candidates(track_key: str, limit: int = 50):
     if not query_row:
         return []
     rows = await pool.fetch(
-        """
+        f"""
         SELECT
             te.track_key::text,
             te.title::text,
@@ -149,7 +149,7 @@ async def fetch_projected_embeddings(track_keys: List[str]):
         return {}
     pool = await get_db_pool()
     rows = await pool.fetch(
-        """
+        f"""
         SELECT track_key::text, projected_embedding::text
         FROM {TV_CLIP}
         WHERE track_key = ANY($1::text[])
@@ -339,7 +339,7 @@ async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict 
         # 2. 키워드 풀 track_key들의 데이터 조회
         pool = await get_db_pool()
         keyword_rows = await pool.fetch(
-            """
+            f"""
             SELECT
                 t.track_key::text,
                 t.title::text,
@@ -500,7 +500,7 @@ async def playlist_builder_finish(request: PlaylistBuilderFinishRequest, user: d
         # 선택한 6곡의 정보 가져오기
         pool = await get_db_pool()
         selected_rows = await pool.fetch(
-            """
+            f"""
             SELECT
                 t.track_key::text,
                 t.title::text,
@@ -642,7 +642,7 @@ async def get_my_playlists(user: dict | None = Depends(get_optional_user)):
         for row in rows:
             track_keys = row["track_keys"] or []
             track_rows = await pool.fetch(
-                """
+                f"""
                 SELECT track_key::text, title::text, artist::text, album::text,
                        cover_image_url::text, playlist_count, apple_music_id::text
                 FROM {T}

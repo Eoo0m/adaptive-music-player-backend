@@ -84,7 +84,7 @@ async def keep_alive_ping():
             ping_vec = np.random.randn(512).astype(np.float32)
             ping_vec = ping_vec / np.linalg.norm(ping_vec)
             await pool.fetch(
-                """
+                f"""
                 SELECT t.track_key, t.title, t.artist
                 FROM {TV_CLIP} v
                 JOIN {T} t ON v.track_key = t.track_key
@@ -96,7 +96,7 @@ async def keep_alive_ping():
 
             # 제목 검색 ping (raw SQL)
             await pool.fetch(
-                """
+                f"""
                 SELECT id, track_key, title, artist
                 FROM {T}
                 WHERE lower(title) ILIKE 'test%'
@@ -145,7 +145,7 @@ async def startup_event():
             warmup_vec = np.random.randn(512).astype(np.float32)
             warmup_vec = warmup_vec / np.linalg.norm(warmup_vec)
             await pool.fetch(
-                """
+                f"""
                 SELECT t.track_key, t.title, t.artist, t.album, t.playlist_count, t.cover_image_url,
                        (1 - (v.projected_embedding <=> $1::vector))::float AS similarity
                 FROM {TV_CLIP} v
@@ -163,7 +163,7 @@ async def startup_event():
         warmup_queries = ["love", "sum", "night", "xyz123notfound"]
         for query in warmup_queries:
             await pool.fetch(
-                """
+                f"""
                 SELECT id, track_key, title, artist, album, playlist_count, cover_image_url,
                        similarity(lower(title || ' ' || artist), lower($1))::float AS similarity
                 FROM {T}

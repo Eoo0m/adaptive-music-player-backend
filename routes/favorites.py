@@ -24,7 +24,7 @@ async def get_favorites(user: dict = Depends(get_current_user)):
     """내 관심 리스트 조회"""
     pool = await get_db_pool()
     rows = await pool.fetch(
-        """
+        f"""
         SELECT
             f.track_key,
             f.created_at,
@@ -90,7 +90,7 @@ async def get_favorites_clustered(user: dict = Depends(get_current_user)):
     """찜 목록을 Ward 클러스터링으로 그룹핑해서 반환"""
     pool = await get_db_pool()
     rows = await pool.fetch(
-        """
+        f"""
         SELECT
             f.track_key, f.created_at,
             t.title::text, t.artist::text, t.album::text,

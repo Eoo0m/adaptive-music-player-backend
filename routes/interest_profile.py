@@ -92,7 +92,7 @@ async def recompute_clusters(user_id: str):
 
         # 최근 저장 50곡 임베딩 조회
         rows = await pool.fetch(
-            """
+            f"""
             SELECT f.track_key, te.embedding
             FROM user_favorites f
             JOIN {TV_SIMGCL} te ON f.track_key = te.track_key
@@ -122,7 +122,7 @@ async def recompute_clusters(user_id: str):
 
         # medoid track_key들의 projected_embedding(512d) 조회
         proj_rows = await pool.fetch(
-            """
+            f"""
             SELECT track_key, projected_embedding
             FROM {TV_CLIP}
             WHERE track_key = ANY($1) AND projected_embedding IS NOT NULL
