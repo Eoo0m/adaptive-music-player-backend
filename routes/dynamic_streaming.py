@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from database import get_db_pool
+from config import T, TV_SIMGCL
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -37,7 +38,7 @@ async def next_track(request: TrackRequest):
 
     # 현재 곡 임베딩 조회
     row = await pool.fetchrow(
-        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
+        f"SELECT embedding::text FROM {TV_SIMGCL} WHERE track_key = $1",
         request.track_key,
     )
     if not row:
@@ -52,8 +53,8 @@ async def next_track(request: TrackRequest):
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
-            FROM track_vectors_simgcl te
-            JOIN tracks t ON t.track_key = te.track_key
+            FROM {TV_SIMGCL} te
+            JOIN {T} t ON t.track_key = te.track_key
             WHERE te.track_key != $1
               AND te.track_key = ANY($3::text[])
             ORDER BY te.embedding <=> $2::vector
@@ -65,8 +66,8 @@ async def next_track(request: TrackRequest):
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
-            FROM track_vectors_simgcl te
-            JOIN tracks t ON t.track_key = te.track_key
+            FROM {TV_SIMGCL} te
+            JOIN {T} t ON t.track_key = te.track_key
             WHERE te.track_key != $1
             ORDER BY te.embedding <=> $2::vector
             LIMIT $3
@@ -88,7 +89,7 @@ async def dynamic_next(request: TrackRequest):
     pool = await get_db_pool()
 
     row = await pool.fetchrow(
-        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
+        f"SELECT embedding::text FROM {TV_SIMGCL} WHERE track_key = $1",
         request.track_key,
     )
     if not row:
@@ -103,8 +104,8 @@ async def dynamic_next(request: TrackRequest):
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
-            FROM track_vectors_simgcl te
-            JOIN tracks t ON t.track_key = te.track_key
+            FROM {TV_SIMGCL} te
+            JOIN {T} t ON t.track_key = te.track_key
             WHERE te.track_key != $1
               AND te.track_key = ANY($3::text[])
             ORDER BY te.embedding <=> $2::vector DESC
@@ -116,8 +117,8 @@ async def dynamic_next(request: TrackRequest):
         rows = await pool.fetch(
             f"""
             SELECT {TRACK_FIELDS}
-            FROM track_vectors_simgcl te
-            JOIN tracks t ON t.track_key = te.track_key
+            FROM {TV_SIMGCL} te
+            JOIN {T} t ON t.track_key = te.track_key
             WHERE te.track_key != $1
             ORDER BY te.embedding <=> $2::vector DESC
             LIMIT $3

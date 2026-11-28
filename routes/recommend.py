@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from database import get_db_pool
+from config import T, TV_SIMGCL
 from routes.auth import get_optional_user
 from telemetry import elapsed_ms, get_request_id, now_ms
 
@@ -113,7 +114,7 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
 
     # 1. seed 임베딩 조회
     seed_row = await pool.fetchrow(
-        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
+        f"SELECT embedding::text FROM {TV_SIMGCL} WHERE track_key = $1",
         request.track_key
     )
     if not seed_row or not seed_row["embedding"]:
@@ -138,8 +139,8 @@ async def recommend(request: RecommendRequest, user: dict = Depends(get_optional
             t.playlist_count,
             te.embedding::text AS embedding,
             (1 - (te.embedding <=> $1::vector))::float AS ann_sim
-        FROM track_vectors_simgcl te
-        JOIN tracks t ON t.track_key = te.track_key
+        FROM {TV_SIMGCL} te
+        JOIN {T} t ON t.track_key = te.track_key
         WHERE te.track_key != ALL($2)
         ORDER BY te.embedding <=> $1::vector
         LIMIT $3

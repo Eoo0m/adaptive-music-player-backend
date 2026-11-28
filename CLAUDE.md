@@ -216,3 +216,9 @@ css/styles.css           # 전체 스타일
 - canvas 기반 → DOM overlay 좌표계 불일치로 canvas 위에 DOM 버튼 불가
 - 초기 카메라: 트랙 평균 좌표(`avgPx/avgPy`)로 중앙 정렬
 - 새로고침 시 canvasWrap 숨기지 않고 반투명 블러 오버레이만 표시
+
+**모바일 z-index 주의**:
+- `.search-interface`가 모바일에서 `z-index: 250`으로 화면 전체를 덮음
+- `pointer-events: none` + 내부 input/button만 `pointer-events: auto`로 처리
+- 이 때문에 `#searchBody`, `#trackDetailPanel` 안의 버튼이 터치 안 될 수 있음
+- 모바일에서 터치 이벤트가 막히면 `.search-interface`의 `pointer-events` 먼저 확인할 것

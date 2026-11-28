@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 from database import get_db_pool
+from config import T, TV_SIMGCL
 from routes.auth import get_optional_user
 from routes.recommend import _dual_attention_scores, _cosine_sim, DA_WEIGHT, GLOBAL_WEIGHT
 
@@ -30,7 +31,7 @@ async def top_tracks(limit: int = 10):
         """
         SELECT t.track_key::text, t.title::text, t.artist::text, t.album::text,
                t.cover_image_url::text, t.playlist_count
-        FROM tracks t
+        FROM {T} t
         ORDER BY t.playlist_count DESC
         LIMIT $1
         """,
@@ -63,8 +64,8 @@ async def music_map(request: MusicMapRequest, user: dict | None = Depends(get_op
         """
         SELECT t.track_key::text, t.title::text, t.artist::text, t.album::text,
                t.cover_image_url::text, t.playlist_count, t.apple_music_id::text, te.embedding::text
-        FROM track_vectors_simgcl te
-        JOIN tracks t ON t.track_key = te.track_key
+        FROM {TV_SIMGCL} te
+        JOIN {T} t ON t.track_key = te.track_key
         WHERE te.track_key = ANY($1::text[])
         """,
         request.track_keys,
@@ -123,8 +124,8 @@ async def music_map(request: MusicMapRequest, user: dict | None = Depends(get_op
             SELECT te.track_key, tr.title, tr.artist, tr.album, tr.cover_image_url, tr.playlist_count, tr.apple_music_id,
                    te.embedding,
                    te.embedding <=> seeds.seed_emb AS dist
-            FROM track_vectors_simgcl te
-            JOIN tracks tr ON tr.track_key = te.track_key
+            FROM {TV_SIMGCL} te
+            JOIN {T} tr ON tr.track_key = te.track_key
             WHERE te.track_key != ALL($3::text[])
             ORDER BY te.embedding <=> seeds.seed_emb
             LIMIT $4

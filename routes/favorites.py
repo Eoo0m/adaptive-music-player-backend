@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from scipy.cluster.hierarchy import linkage, fcluster
 
 from database import get_db_pool
+from config import T, TV_SIMGCL
 from routes.auth import get_current_user
 from routes.interest_profile import recompute_clusters
 
@@ -34,7 +35,7 @@ async def get_favorites(user: dict = Depends(get_current_user)):
             t.apple_music_id::text,
             t.playlist_count
         FROM user_favorites f
-        JOIN tracks t ON f.track_key = t.track_key
+        JOIN {T} t ON f.track_key = t.track_key
         WHERE f.user_id = $1::uuid
         ORDER BY f.created_at DESC
         """,
@@ -96,8 +97,8 @@ async def get_favorites_clustered(user: dict = Depends(get_current_user)):
             t.cover_image_url::text, t.apple_music_id::text, t.playlist_count,
             te.embedding
         FROM user_favorites f
-        JOIN tracks t ON f.track_key = t.track_key
-        LEFT JOIN track_vectors_simgcl te ON te.track_key = f.track_key
+        JOIN {T} t ON f.track_key = t.track_key
+        LEFT JOIN {TV_SIMGCL} te ON te.track_key = f.track_key
         WHERE f.user_id = $1::uuid
         ORDER BY f.created_at DESC
         """,

@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from database import get_db_pool
+from config import T, TV_CLIP
 from models import playlist_clip_model, intent_classifier, INTENT_THRESHOLD, device
 from utils import get_openai_embedding_with_retry, mmr_rerank
 from telemetry import elapsed_ms, get_request_id, now_ms
@@ -46,7 +47,7 @@ async def search_tracks_by_title_raw(query_text: str, match_count: int = 10):
             cover_image_url::text,
             apple_music_id::text,
             similarity(lower(title || ' ' || artist), lower($1))::float AS similarity
-        FROM tracks
+        FROM {T}
         WHERE lower(title || ' ' || artist) % lower($1)
            OR lower(title) ILIKE $1 || '%'
            OR lower(artist) ILIKE $1 || '%'
@@ -90,8 +91,8 @@ async def _mood_search(projected_embedding_np: np.ndarray, candidates: int, top_
             t.cover_image_url::text,
             t.apple_music_id::text,
             te.projected_embedding::text
-        FROM track_vectors_clip te
-        JOIN tracks t ON te.track_key = t.track_key
+        FROM {TV_CLIP} te
+        JOIN {T} t ON te.track_key = t.track_key
         ORDER BY te.projected_embedding <=> $1::vector
         LIMIT $2
         """,

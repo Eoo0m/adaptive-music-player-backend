@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from database import get_db_pool
+from config import T, TV_SIMGCL, TV_CLIP
 from models import playlist_clip_model, device
 from utils import get_openai_embedding_with_retry, mmr_rerank
 from routes.auth import get_current_user, get_optional_user
@@ -70,8 +71,8 @@ async def fetch_keyword_candidates(keyword: str, limit: int = 100):
             t.cover_image_url::text,
             t.apple_music_id::text,
             v.projected_embedding::text
-        FROM track_vectors_clip v
-        JOIN tracks t ON v.track_key = t.track_key
+        FROM {TV_CLIP} v
+        JOIN {T} t ON v.track_key = t.track_key
         ORDER BY v.projected_embedding <=> $1::vector
         LIMIT $2
         """,
@@ -103,7 +104,7 @@ async def fetch_similar_candidates(track_key: str, limit: int = 50):
     """track_key 기반 유사곡 limit개 가져오기"""
     pool = await get_db_pool()
     query_row = await pool.fetchrow(
-        "SELECT embedding::text FROM track_vectors_simgcl WHERE track_key = $1",
+        f"SELECT embedding::text FROM {TV_SIMGCL} WHERE track_key = $1",
         track_key
     )
     if not query_row:
@@ -119,7 +120,7 @@ async def fetch_similar_candidates(track_key: str, limit: int = 50):
             te.cover_image_url::text,
             te.apple_music_id::text,
             (1 - (te.embedding <=> $2::vector))::float AS similarity
-        FROM track_vectors_simgcl te
+        FROM {TV_SIMGCL} te
         WHERE te.track_key != $1
         ORDER BY te.embedding <=> $2::vector
         LIMIT $3
@@ -150,7 +151,7 @@ async def fetch_projected_embeddings(track_keys: List[str]):
     rows = await pool.fetch(
         """
         SELECT track_key::text, projected_embedding::text
-        FROM track_vectors_clip
+        FROM {TV_CLIP}
         WHERE track_key = ANY($1::text[])
         """,
         track_keys
@@ -347,7 +348,7 @@ async def playlist_builder_next(request: PlaylistBuilderNextRequest, user: dict 
                 t.playlist_count,
                 t.cover_image_url::text,
                 t.apple_music_id::text
-            FROM tracks t
+            FROM {T} t
             WHERE t.track_key = ANY($1::text[])
             """,
             request.keyword_track_keys
@@ -508,7 +509,7 @@ async def playlist_builder_finish(request: PlaylistBuilderFinishRequest, user: d
                 t.playlist_count,
                 t.cover_image_url::text,
                 t.apple_music_id::text
-            FROM tracks t
+            FROM {T} t
             WHERE t.track_key = ANY($1::text[])
             """,
             request.selected_track_keys
@@ -644,7 +645,7 @@ async def get_my_playlists(user: dict | None = Depends(get_optional_user)):
                 """
                 SELECT track_key::text, title::text, artist::text, album::text,
                        cover_image_url::text, playlist_count, apple_music_id::text
-                FROM tracks
+                FROM {T}
                 WHERE track_key = ANY($1::text[])
                 """,
                 track_keys

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from scipy.cluster.hierarchy import linkage, fcluster
 
 from database import get_db_pool
+from config import TV_SIMGCL, TV_CLIP
 from routes.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,7 @@ async def recompute_clusters(user_id: str):
             """
             SELECT f.track_key, te.embedding
             FROM user_favorites f
-            JOIN track_vectors_simgcl te ON f.track_key = te.track_key
+            JOIN {TV_SIMGCL} te ON f.track_key = te.track_key
             WHERE f.user_id = $1::uuid
             ORDER BY f.created_at DESC
             LIMIT $2
@@ -123,7 +124,7 @@ async def recompute_clusters(user_id: str):
         proj_rows = await pool.fetch(
             """
             SELECT track_key, projected_embedding
-            FROM track_vectors_clip
+            FROM {TV_CLIP}
             WHERE track_key = ANY($1) AND projected_embedding IS NOT NULL
             """,
             medoid_keys,

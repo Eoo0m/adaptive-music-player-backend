@@ -41,6 +41,7 @@ logger.info(f"🚀 Starting Adaptive Music Player Backend - Version: {APP_VERSIO
 
 # 내부 모듈 import (load_dotenv 이후)
 from database import get_db_pool
+from config import T, TV_CLIP
 import database
 from utils import openai_client
 from models import playlist_clip_model, device
@@ -85,8 +86,8 @@ async def keep_alive_ping():
             await pool.fetch(
                 """
                 SELECT t.track_key, t.title, t.artist
-                FROM track_vectors_clip v
-                JOIN tracks t ON v.track_key = t.track_key
+                FROM {TV_CLIP} v
+                JOIN {T} t ON v.track_key = t.track_key
                 ORDER BY v.projected_embedding <=> $1::vector
                 LIMIT 10
                 """,
@@ -97,7 +98,7 @@ async def keep_alive_ping():
             await pool.fetch(
                 """
                 SELECT id, track_key, title, artist
-                FROM tracks
+                FROM {T}
                 WHERE lower(title) ILIKE 'test%'
                 LIMIT 5
                 """
@@ -147,8 +148,8 @@ async def startup_event():
                 """
                 SELECT t.track_key, t.title, t.artist, t.album, t.playlist_count, t.cover_image_url,
                        (1 - (v.projected_embedding <=> $1::vector))::float AS similarity
-                FROM track_vectors_clip v
-                JOIN tracks t ON v.track_key = t.track_key
+                FROM {TV_CLIP} v
+                JOIN {T} t ON v.track_key = t.track_key
                 ORDER BY v.projected_embedding <=> $1::vector
                 LIMIT 10
                 """,
@@ -165,7 +166,7 @@ async def startup_event():
                 """
                 SELECT id, track_key, title, artist, album, playlist_count, cover_image_url,
                        similarity(lower(title || ' ' || artist), lower($1))::float AS similarity
-                FROM tracks
+                FROM {T}
                 WHERE lower(title || ' ' || artist) % lower($1)
                    OR lower(title) ILIKE $1 || '%'
                    OR lower(artist) ILIKE $1 || '%'
